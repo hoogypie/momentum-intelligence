@@ -1,0 +1,13 @@
+# Phase 2 — Python Backend
+fastapi==0.110.0
+uvicorn[standard]==0.27.0
+httpx==0.26.0
+python-dotenv==1.0.1
+
+# Data
+yfinance==0.2.36
+pandas==2.2.0
+requests==2.31.0
+
+# Dev
+pytest==8.0.0

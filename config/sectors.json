@@ -1,0 +1,114 @@
+{
+  "_meta": {
+    "description": "Sector heat configuration. Update weekly. Never hardcode in application code.",
+    "last_updated": "2026-05-28",
+    "update_frequency": "weekly",
+    "heat_scale": "0-100 (0=dormant, 100=explosive)"
+  },
+  "sectors": [
+    {
+      "id": "ai_infra",
+      "label": "AI INFRASTRUCTURE",
+      "status": "HOT",
+      "heat": 95,
+      "leaders": ["NVDA", "AVGO", "MU"],
+      "sympathy": ["CRDO", "CIEN", "ANET"],
+      "trigger": "SNOW +34% bevestigt AI consumption inflection — Fase 2 aangebroken",
+      "phase": 1,
+      "last_updated": "2026-05-28"
+    },
+    {
+      "id": "drones_defense",
+      "label": "DRONES / DEFENSE",
+      "status": "EXPLOSIVE",
+      "heat": 98,
+      "leaders": ["UMAC", "KTOS", "RCAT"],
+      "sympathy": ["JOBY", "ACHR"],
+      "trigger": "Pentagon equity investment deals — WSJ 28 mei 2026",
+      "phase": 3,
+      "last_updated": "2026-05-28"
+    },
+    {
+      "id": "quantum",
+      "label": "QUANTUM COMPUTING",
+      "status": "HOT",
+      "heat": 92,
+      "leaders": ["IONQ", "QBTS", "RGTI"],
+      "sympathy": ["QUBT", "IBM", "QTEX"],
+      "trigger": "US $2B CHIPS Act quantum funding — mei 2026",
+      "phase": 3,
+      "last_updated": "2026-05-28"
+    },
+    {
+      "id": "ai_software",
+      "label": "AI SOFTWARE / ORCHESTRATION",
+      "status": "BUILDING",
+      "heat": 78,
+      "leaders": ["SNOW", "NOW", "DDOG"],
+      "sympathy": ["ORCL", "HUBS", "WDAY"],
+      "trigger": "SNOW Q1 +34% AH — AI consumption inflection Fase 2",
+      "phase": 2,
+      "last_updated": "2026-05-28"
+    },
+    {
+      "id": "ai_pc",
+      "label": "AI PC / EDGE",
+      "status": "HOT",
+      "heat": 85,
+      "leaders": ["HPQ", "DELL"],
+      "sympathy": ["LNVGY"],
+      "trigger": "HPQ EPS +21% beat — AI PC refresh bevestigd door Lenovo",
+      "phase": 2,
+      "last_updated": "2026-05-28"
+    },
+    {
+      "id": "cybersecurity",
+      "label": "CYBERSECURITY",
+      "status": "STABLE",
+      "heat": 62,
+      "leaders": ["PANW", "CRWD"],
+      "sympathy": ["S", "ZS", "FTNT"],
+      "trigger": "Geen acute trigger — structureel sterk",
+      "phase": 2,
+      "last_updated": "2026-05-28"
+    },
+    {
+      "id": "power_energy",
+      "label": "POWER / ENERGY",
+      "status": "DORMANT",
+      "heat": 55,
+      "leaders": ["GEV", "VST", "CEG"],
+      "sympathy": ["CCJ", "NRG", "AES"],
+      "trigger": "Iran/Hormuz + AI power demand — sluimerend",
+      "phase": 4,
+      "last_updated": "2026-05-28"
+    },
+    {
+      "id": "robotics",
+      "label": "ROBOTICS",
+      "status": "EARLY",
+      "heat": 41,
+      "leaders": ["ABB", "TER", "SYM"],
+      "sympathy": ["SERV"],
+      "trigger": "Physical AI Fase 3 pre-positionering",
+      "phase": 3,
+      "last_updated": "2026-05-28"
+    }
+  ],
+  "sympathy_map": {
+    "IONQ":  ["QBTS", "RGTI", "QUBT"],
+    "QBTS":  ["IONQ", "RGTI"],
+    "RGTI":  ["IONQ", "QBTS"],
+    "NVDA":  ["MU", "AVGO", "CRDO", "CIEN"],
+    "AVGO":  ["NVDA", "CRDO", "ANET"],
+    "MU":    ["NVDA", "CRDO"],
+    "SNOW":  ["NOW", "DDOG", "HUBS", "WDAY"],
+    "DDOG":  ["SNOW", "NOW"],
+    "NOW":   ["SNOW", "DDOG"],
+    "UMAC":  ["RCAT", "KTOS", "JOBY"],
+    "KTOS":  ["UMAC", "RCAT"],
+    "HPQ":   ["DELL", "LNVGY"],
+    "GEV":   ["VST", "CEG", "CCJ"],
+    "CRDO":  ["CIEN", "AVGO", "ANET"]
+  }
+}
