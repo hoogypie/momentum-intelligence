@@ -771,3 +771,241 @@ def ticker_diffs(
         "diffs":        [dataclasses.asdict(d) for d in diffs],
         "generated_at": datetime.now(timezone.utc).isoformat(),
     })
+
+
+# ── EVALUATION ENDPOINTS (v2.7) ───────────────────────────────────────────────
+
+from storage.signal_evaluator import (
+    evaluate_ticker as _evaluate_ticker,
+    compute_signal_statistics,
+    compute_global_statistics,
+    get_top_signals,
+    GRADE_SUCCESS, GRADE_FAILED,
+)
+from storage.evaluation_store import (
+    load_outcomes, load_graded_outcomes, list_evaluated_tickers,
+)
+from research.evaluation_report import (
+    export_evaluation_json, export_markdown_report, global_summary_report,
+)
+
+
+@app.post(
+    "/evaluation/run/{ticker}",
+    tags=["history"],
+    summary="Voer signal evaluatie uit voor één ticker",
+    operation_id="run_evaluation",
+)
+def run_evaluation(
+    ticker: str,
+    limit:  int  = Query(200, description="Max snapshots om te evalueren"),
+    export: bool = Query(False, description="Exporteer resultaat naar research/"),
+) -> JSONResponse:
+    """
+    Evalueert alle opgeslagen signalen voor een ticker.
+
+    Vergelijkt elke snapshot-prijs met toekomstige snapshot-prijzen
+    om te bepalen of het signaal correct was.
+
+    Grades:
+    - **SUCCESS** — BUY signaal gevolgd door ≥+3% in 24u
+    - **FAILED**  — BUY signaal gevolgd door ≤-3% in 24u
+    - **NEUTRAL** — Geen duidelijke follow-through
+    - **PENDING** — Nog geen toekomstige data beschikbaar
+
+    Na het uitvoeren: gebruik `/evaluation/ticker/{ticker}` om resultaten op te halen.
+    """
+    ticker = ticker.upper().strip()
+    if not ticker.replace("-", "").isalpha():
+        raise HTTPException(400, detail=invalid_ticker(ticker).model_dump())
+
+    result = _evaluate_ticker(ticker, limit=limit)
+
+    if result["evaluated"] + result["pending"] == 0:
+        raise HTTPException(404, detail={
+            "error":   "NO_SNAPSHOTS",
+            "ticker":  ticker,
+            "message": f"Geen snapshots voor {ticker}. Roep /analyze/{ticker} aan.",
+        })
+
+    if export and result["evaluated"] > 0:
+        stats = compute_signal_statistics(ticker)
+        path  = export_evaluation_json(ticker, stats, result["outcomes"])
+        result["exported_to"] = path
+
+    return JSONResponse(content={
+        **result,
+        "evaluated_at": datetime.now(timezone.utc).isoformat(),
+        "outcomes":     result["outcomes"][:20],  # Max 20 in response
+    })
+
+
+@app.get(
+    "/evaluation/ticker/{ticker}",
+    tags=["history"],
+    summary="Evaluatieresultaten voor één ticker",
+    operation_id="get_ticker_evaluation",
+    responses={404: {"description": "Geen evaluaties beschikbaar"}},
+)
+def get_ticker_evaluation(
+    ticker:       str,
+    include_pending: bool = Query(False, description="Inclusief PENDING outcomes"),
+    export:          bool = Query(False),
+) -> JSONResponse:
+    """
+    Geeft evaluatieresultaten en statistieken voor één ticker.
+
+    Roep eerst `/evaluation/run/{ticker}` aan om evaluatie te triggeren.
+    """
+    ticker = ticker.upper().strip()
+
+    outcomes = (
+        load_outcomes(ticker)
+        if include_pending
+        else load_graded_outcomes(ticker)
+    )
+
+    if not outcomes:
+        raise HTTPException(404, detail={
+            "error":   "NO_EVALUATIONS",
+            "ticker":  ticker,
+            "message": f"Geen evaluaties voor {ticker}. Roep /evaluation/run/{ticker} aan.",
+        })
+
+    stats = compute_signal_statistics(ticker)
+
+    if export:
+        export_evaluation_json(ticker, stats, outcomes)
+        export_markdown_report(ticker, stats, outcomes)
+
+    return JSONResponse(content={
+        "ticker":      ticker,
+        "statistics":  stats,
+        "outcomes":    outcomes[:50],
+        "total_count": len(outcomes),
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+    })
+
+
+@app.get(
+    "/evaluation/session/{date}",
+    tags=["history"],
+    summary="Evaluaties van een specifieke sessie/dag",
+    operation_id="get_session_evaluation",
+)
+def get_session_evaluation(date: str) -> JSONResponse:
+    """
+    Alle evaluaties van signalen die op een specifieke datum zijn opgeslagen.
+
+    `date` formaat: YYYY-MM-DD
+
+    Combineert replay (wat er die dag was) met evaluatie (wat er daarna
+    is gebeurd), zodat je direct kunt zien welke signalen die dag
+    daadwerkelijk hebben gevolgd.
+    """
+    from storage.replay_engine import replay_session
+
+    # Valideer datum
+    try:
+        from datetime import datetime as _dt
+        session_date = _dt.strptime(date, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(400, detail={
+            "error": "INVALID_DATE",
+            "message": f"Ongeldig datum formaat: '{date}'. Verwacht YYYY-MM-DD.",
+        })
+
+    # Alle tickers die die dag actief waren
+    replay = replay_session(date)
+    active_tickers = list(replay.get("session_by_ticker", {}).keys())
+
+    session_results = []
+    for ticker in active_tickers:
+        outcomes = load_graded_outcomes(ticker)
+        # Filter op outcomes van die dag
+        day_outcomes = [
+            o for o in outcomes
+            if o.get("timestamp", "").startswith(date)
+        ]
+        if day_outcomes:
+            stats = compute_signal_statistics(ticker)
+            session_results.append({
+                "ticker":    ticker,
+                "outcomes":  day_outcomes,
+                "day_count": len(day_outcomes),
+                "day_success": sum(1 for o in day_outcomes if o.get("grade") == "SUCCESS"),
+            })
+
+    session_results.sort(key=lambda x: x["day_success"], reverse=True)
+
+    return JSONResponse(content={
+        "date":             date,
+        "tickers_with_evaluations": len(session_results),
+        "session_results":  session_results,
+        "generated_at":     datetime.now(timezone.utc).isoformat(),
+    })
+
+
+@app.get(
+    "/evaluation/top-signals",
+    tags=["history"],
+    summary="Beste en slechtste signalen",
+    operation_id="get_top_signals",
+)
+def get_top_signals_endpoint(
+    n:    int  = Query(10, description="Aantal resultaten", ge=1, le=50),
+    best: bool = Query(True, description="True = beste, False = slechtste"),
+) -> JSONResponse:
+    """
+    De N beste (of slechtste) signalen over alle geëvalueerde tickers.
+
+    `best=true`  → gesorteerd op return_1d (hoogste eerst)
+    `best=false` → gesorteerd op return_1d (laagste eerst)
+
+    Nuttig voor: "Welke combinaties van fase + catalyst + score werken het best?"
+    """
+    grade   = GRADE_SUCCESS if best else GRADE_FAILED
+    signals = get_top_signals(n=n, grade=grade)
+
+    return JSONResponse(content={
+        "type":           "BEST" if best else "WORST",
+        "count":          len(signals),
+        "signals":        signals,
+        "generated_at":   datetime.now(timezone.utc).isoformat(),
+    })
+
+
+@app.get(
+    "/evaluation/stats",
+    tags=["history"],
+    summary="Globale evaluatiestatistieken",
+    operation_id="get_evaluation_stats",
+)
+def get_evaluation_stats(export: bool = Query(False)) -> JSONResponse:
+    """
+    Aggregeert evaluatiestatistieken over alle geëvalueerde tickers.
+
+    Toont success rate per fase, per catalyst type en per beslissing.
+    Dit is de snelste manier om te zien welke setup-combinaties
+    historisch het beste hebben gewerkt.
+    """
+    stats = compute_global_statistics()
+
+    if export:
+        now  = datetime.now(timezone.utc)
+        path = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)),
+            "..", "research", "signal_reviews",
+            f"GLOBAL_eval_{now.strftime('%Y%m%d_%H%M%S')}.md"
+        )
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        try:
+            with open(path, "w") as f:
+                f.write(global_summary_report(stats))
+        except Exception:
+            pass
+
+    return JSONResponse(content={
+        **stats,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+    })

@@ -4,42 +4,48 @@
 
 ---
 
-## [v2.6] — 28 mei 2026 — Replay & Observation Tooling
+## [v2.7] — 28 mei 2026 — Signal Evaluation Layer
 
-**Context:** v2.5 sloeg snapshots op. v2.6 maakt ze bruikbaar voor analyse
-en debugging. Replay-laag leest storage — raakt scoring nooit aan.
+**Context:** v2.6 maakte signalen inzichtelijk via replay. v2.7 evalueert
+ze achteraf: was een BUY_MODERATE signaal daadwerkelijk gevolgd door
+prijsstijging? Geen ML, geen predictie — puur historische vergelijking.
 
 **Nieuwe storage modules:**
-- storage/snapshot_diff.py  — Diff tussen snapshots: score delta, beslissing,
-  fase, catalyst, confidence. significant-filter voor ruis-reductie.
-- storage/timeline.py       — first_seen, last_updated, strongest_signal,
-  confidence_history, score_timeline, phase_history, ticker_summary
-- storage/replay_engine.py  — replay_ticker (diffs+timeline), replay_sector
-  (heat delta, leader data), replay_session (dag-overzicht per ticker)
+- storage/evaluation_store.py  — SignalOutcome persistence per ticker
+  (storage/data/evaluations/). Idempotent via version_id.
+- storage/signal_evaluator.py  — Core grade logic, future price lookup,
+  statistics breakdown, global stats, top signals
 
-**Nieuwe research/ module:**
-- research/observation_store.py — Auto-gegenereerde replay notes (JSON),
-  signal reviews (JSON + Markdown), handmatige observatie templates
+**Grade logica:**
+- BUY signalen: SUCCESS ≥+3% / FAILED ≤-3% / NEUTRAL tussenin
+- SKIP/BLOCKED: SUCCESS als prijs daadwerkelijk daalde ≤-2%
+- WATCH: altijd NEUTRAL (geen richting)
+- Tijdshorizon prioriteit: 1d → 4h → 1h → PENDING
+- Tolerantievensters: 1h=[45-75min], 4h=[3-5h], 1d=[20-28h], 3d=[60-84h]
 
-**CLI export tool:**
-- scripts/export_snapshots.py — ticker/sector/session/all-tickers/list
-  python3 scripts/export_snapshots.py ticker IONQ --review
+**research/evaluation_report.py:**
+- Markdown rapporten per ticker + globaal
+- JSON export met statistieken + outcomes
+- ticker_evaluation_report(), global_summary_report()
 
 **Nieuwe API endpoints:**
-- GET /replay/ticker/{ticker}      — Volledige replay met diffs
-- GET /replay/ticker/{ticker}/diff — Gefocuste diff view (?significant=true)
-- GET /replay/sector/{sector}      — Sector replay + heat delta
-- GET /replay/session/{date}       — Dag-overzicht (YYYY-MM-DD)
-- GET /replay/summary              — Alle getrackte tickers
+- POST /evaluation/run/{ticker}    — Trigger evaluatie (on-demand)
+- GET  /evaluation/ticker/{ticker} — Resultaten + statistieken
+- GET  /evaluation/session/{date}  — Alle evaluaties van één dag
+- GET  /evaluation/top-signals     — Beste/slechtste signalen ooit
+- GET  /evaluation/stats           — Globale statistieken
 
-**Voorbeeld diff output:**
-- BUY_MODERATE → BUY_STRONG | (+9.0 score) | fase BREAKOUT → EXPANSION
+**Voorbeeld output:**
+- IONQ BREAKOUT BUY_MODERATE: SUCCESS (return_1d=+6.1%, basis=1d)
+- IONQ EXPANSION BUY_STRONG:  FAILED  (return_1d=-4.5%, basis=1d)
+- NEUTRAL fase: success_rate 0% vs BREAKOUT fase 33%
 
-**Tests:** tests/test_replay.py — 60 tests
-**Totaal:** 466/466 ✅
+**Tests:** tests/test_evaluation.py — 64 tests
+**Totaal:** 530/530 ✅
 
-**Geen nieuwe scoring features. Replay leest nooit het scoring process aan.**
+**Evaluatie beïnvloedt scoring nooit direct.**
 
+---
 ---
 ---
 ---
