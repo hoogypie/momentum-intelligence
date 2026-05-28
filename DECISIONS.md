@@ -299,3 +299,46 @@ Fouten communiceren via het `error` veld + DataConfidence.MISSING.
 De architectuur is klaar (TTL, cooldown registry, stats). Activeren in v2.2 zodra
 in productie aantoonbaar rate limiting optreedt. In-memory cache overleeft
 server restart niet — dat is acceptabel voor persoonlijk gebruik.
+
+---
+
+## D-016 | 28 mei 2026 | CACHE: In-Memory TTL Cache Geactiveerd
+
+**Beslissing:** CACHE_ENABLED = True. In-memory dict, market-hours-aware TTL,
+age-based confidence, stale fallback.
+
+**Rationale:** Elke /analyze request haalde live Yahoo data op. Bij batch requests
+of sector scans (3-10 tickers) werd Yahoo direct rate-limited. Cache beschermt
+tegen rate limits, versnelt responses 10-50x voor cache hits, en biedt graceful
+degradation bij Yahoo-uitval.
+
+**TTL keuzes:** 60s (regular hours) is kort genoeg voor trading relevantie maar
+lang genoeg om rate limits te vermijden. 1800s (overnight) acceptabel omdat
+prijzen dan toch niet bewegen.
+
+**Stale fallback:** Liever STALE data dan helemaal geen data. Confidence label
+communiceert de beperkingen transparant. Gebruiker beslist zelf of STALE score
+actionable is.
+
+---
+
+## D-017 | 28 mei 2026 | BATCH ENDPOINT: Max 10, Partial Failure Tolerant
+
+**Beslissing:** GET /analyze?tickers=A,B,C, max 10 per request, één fout stopt
+de batch niet.
+
+**Rationale:** Sympathy play scanning vereist meerdere tickers tegelijk (bijv.
+IONQ + QBTS + RGTI). Zonder batch endpoint = 3 losse requests = 3x de latency.
+Max 10 beschermt tegen misbruik. Partial failure tolerance: als QBTS Yahoo data
+mist, moeten IONQ en RGTI nog steeds gescoord worden.
+
+---
+
+## D-018 | 28 mei 2026 | SECTOR ENDPOINT: Cache-First Strategy
+
+**Beslissing:** GET /sector/{id} scoort leaders vanuit cache, valt terug op live
+als niet gecached. Eén mislukte leader stopt de sector niet.
+
+**Rationale:** Sector scans zijn nuttig als snelle oriëntatie ("hoe staat quantum
+er nu voor?"). Cache-first maakt dit snel (<100ms bij alle leaders gecached).
+Live-fallback zorgt dat ook ongecachte leaders worden meegenomen.

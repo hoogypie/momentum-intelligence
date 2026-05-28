@@ -4,38 +4,50 @@
 
 ---
 
-## [v2.1] — 28 mei 2026 — Data Stability Layer
+## [v2.2] — 28 mei 2026 — Caching & Data Freshness Layer
 
-**Context:** v2.0 backend werkte maar had geen typed contracts, geen retry logic,
-geen confidence labels en geen validatie van ontbrekende velden.
-v2.1 maakt de backend production-safe vóór frontend of AI narrative layer.
+**Context:** v2.1 had retry en schemas maar geen echte cache. Elke request
+haalde live data op. v2.2 voegt in-memory cache toe, freshness labels,
+batch/sector endpoints en stale-fallback logic.
 
-**Nieuwe bestanden:**
-- `schemas/ticker_snapshot.py` — TickerSnapshot + DataConfidence (LIVE/DELAYED/PARTIAL/MISSING)
-- `schemas/scoring_response.py` — ScoringResponse, DataQuality, MomentumBreakdown, SkipBreakdown
-- `schemas/sector_state.py` — SectorState Pydantic model
-- `schemas/api_error.py` — ApiError, ErrorCode, factory functies
-- `cache/market_cache.py` — Cache architectuur prep (DISABLED, activeren in v2.2)
-- `tests/test_data_stability.py` — 53 stability tests
+**Cache (actief):**
+- `CACHE_ENABLED = True` in cache/market_cache.py
+- TTL per marktperiode: regular=60s, afterhours=300s, overnight=1800s
+- Ticker-based opslag, market-hours-aware, age-based logging
 
-**Gewijzigd:**
-- `data/yahoo_client.py` — retry (3x), exponential backoff, rate limit detectie,
-  DataConfidence label, TickerSnapshot i.p.v. QuoteData, NaN/Inf filtering
-- `data/assembler.py` — missing field handling, DataQuality schema, TickerSnapshot input
-- `backend/app.py` — typed responses via Pydantic, ApiError schema, 429 rate limit response
-- `tests/test_backend.py` — bijgewerkt voor TickerSnapshot + nieuwe schema velden
-- `requirements.txt` — pydantic>=2.0 bevestigd
+**DataConfidence uitgebreid:**
+- STALE toegevoegd (>60 min oud)
+- Drempels: LIVE<300s | DELAYED<3600s | STALE<7200s | dan verwijderd
+- `worst_confidence()` combineert veld-kwaliteit + cache-leeftijd
 
-**Stabiliteitswaarborgen:**
-- Engine scoort altijd, ook bij PARTIAL/MISSING data (graceful defaults)
-- API crasht nooit op ophaalfout — altijd typed error response
-- Rate limit detectie → 429 in API, cooldown prep in cache
-- Alle 159 tests slagen zonder netwerk
+**Freshness metadata in responses:**
+- `cache_hit`, `data_age_seconds` in DataQuality
+- FreshnessInfo model in schemas/ticker_snapshot.py
 
-**Test resultaten:** 159/159 ✅ (70 engine + 36 backend + 53 stability)
+**Yahoo fallback logic:**
+- Yahoo faalt → stale cache serveren (DELAYED/STALE confidence)
+- Alleen MISSING als geen cache beschikbaar
+- force_refresh=True → altijd live, cache bypass
 
-**Geen nieuwe scoring features toegevoegd.**
+**Nieuwe endpoints:**
+- `GET /analyze?tickers=A,B,C` — batch, max 10, partial failure tolerant
+- `GET /sector/{sector_name}` — leaders + sympathy + avg momentum
+- `GET /analyze/{ticker}?refresh=true` — cache invalidatie per ticker
 
+**Cache invalidatie:**
+- `invalidate(ticker)` per ticker
+- `invalidate_all()` volledige cache
+- Cooldown verloopt automatisch bij check
+
+**Nieuwe tests:**
+- tests/test_cache.py — 74 tests (cache, batch, sector, freshness)
+- tests/test_data_stability.py — 8 tests bijgewerkt voor enabled cache
+
+**Test resultaten:** 235/235 ✅
+
+**Geen nieuwe scoring features.**
+
+---
 ---
 
 ## [v2.0] — 28 mei 2026 — Lokale Backend + Data Ingestion

@@ -1,192 +1,157 @@
 # ARCHITECTURE — MOMENTUM INTELLIGENCE
-> Laatste update: 28 mei 2026 | v1.2
+> Laatste update: 28 mei 2026 | v2.2
 
 ---
 
 ## 1. KERNPRINCIPES
 
 ```
-1. Skip Score gaat ALTIJD vóór Momentum Score
-2. Data berekent score — AI legt score uit — nooit andersom
-3. Sector config = JSON, nooit hardcoded in applicatiecode
-4. API keys nooit in frontend of gecommit naar Git
-5. Geen feature toevoegen tijdens bug-fix sessie
+1. Score engine is deterministisch en gescheiden van cache/data layer
+2. Skip Score gaat altijd vóór Momentum Score
+3. Data berekent score — AI legt uit — nooit andersom
+4. get_snapshot() gooit nooit een exception — altijd TickerSnapshot
+5. Confidence label communiceert data-kwaliteit transparant
+6. Cache beschermt motor, misleidt nooit — STALE is zichtbaar voor gebruiker
 ```
 
 ---
 
-## 2. SYSTEEM OVERZICHT
+## 2. VOLLEDIG SYSTEEM DIAGRAM (v2.2)
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    DATA LAAG (fase 2)                       │
-│  Yahoo Finance   Finnhub News   StockTwits   sectors.json   │
-└──────────────┬──────────────┬──────────────┬───────────────┘
-               │              │              │
-               ▼              ▼              ▼
-┌─────────────────────────────────────────────────────────────┐
-│                  ASSEMBLER (fase 2)                         │
-│  data/assembler.py → bouwt TickerInput van losse bronnen    │
-└───────────────────────────┬─────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                    DATA LAAG                                     │
+│                                                                  │
+│  Yahoo Finance ──(retry+backoff)──► _fetch_once()               │
+│                                          │                       │
+│                                          ▼                       │
+│  ┌───────────────────────────────────────────────────────────┐  │
+│  │ CACHE (in-memory, market-hours TTL)                       │  │
+│  │  LIVE <300s │ DELAYED <3600s │ STALE <7200s │ dan weg    │  │
+│  │  Cache hit → TickerSnapshot(cache_hit=True, age=N)        │  │
+│  │  Yahoo faalt → stale fallback of MISSING                  │  │
+│  └───────────────────────────────────────────────────────────┘  │
+│                                          │                       │
+│  Finnhub (placeholder) ──────────────────┤                       │
+│  StockTwits (placeholder) ───────────────┤                       │
+│  sectors.json ──────────────────────────►│                       │
+└──────────────────────────────────────────┼──────────────────────┘
+                                           │
+                                           ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    ASSEMBLER                                     │
+│  TickerSnapshot → classify_catalyst() → classify_rs()           │
+│  Missing fields → graceful defaults                             │
+│  Returns: (TickerInput, DataQuality)                            │
+└───────────────────────────┬─────────────────────────────────────┘
                             │
                             ▼
-┌─────────────────────────────────────────────────────────────┐
-│                  SCORE ENGINE (fase 1 ✅)                    │
-│                                                             │
-│  ┌────────────────────────────────────────────────────┐     │
-│  │ SKIP SCORE (draait ALTIJD eerst)                   │     │
-│  │   Hard vetoes: SEC / Class Action / CFD → BLOCKED  │     │
-│  │   Soft skips: dag>40% / volume< / no catalyst      │     │
-│  │   Score ≥ 100 → BLOCKED  |  Score ≥ 50 → SKIP     │     │
-│  └────────────────────┬───────────────────────────────┘     │
-│                       │ alleen als Skip < 50                │
-│  ┌────────────────────▼───────────────────────────────┐     │
-│  │ MOMENTUM SCORE (0-100)                             │     │
-│  │   Volume Anomaly    22 pts                         │     │
-│  │   Sector Heat       18 pts  ← uit sectors.json     │     │
-│  │   Catalyst Quality  20 pts                         │     │
-│  │   Premarket         14 pts                         │     │
-│  │   Relative Strength 10 pts                         │     │
-│  │   Social Accel.      8 pts  ← quality cap          │     │
-│  │   Float Score        8 pts  ← nieuw v1.2           │     │
-│  └────────────────────┬───────────────────────────────┘     │
-│                       │                                     │
-│  ┌────────────────────▼───────────────────────────────┐     │
-│  │ DECISION ENGINE                                    │     │
-│  │   Phase Detection (ACCUMULATION→EXHAUSTION)        │     │
-│  │   Market Cap Tier (MICRO/SMALL/MID/LARGE)          │     │
-│  │   Sizing = min(decision range, tier cap)           │     │
-│  └────────────────────────────────────────────────────┘     │
-└───────────────────────────┬─────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                    SCORE ENGINE v1.2                            │
+│  (deterministisch — geen cache, geen AI)                        │
+│                                                                 │
+│  Skip Score ──► ≥100? BLOCKED │ ≥50? SKIP │ combo? SKIP       │
+│       │                                                         │
+│       ▼ (alleen als Skip < 50)                                  │
+│  Momentum Score (Volume+Heat+Catalyst+Premarket+RS+Social+Float)│
+│       │                                                         │
+│       ▼                                                         │
+│  Phase Detection + Market Cap Tier + Sizing                     │
+│       │                                                         │
+│       ▼                                                         │
+│  ScoringResult (dataclass)                                      │
+└───────────────────────────┬─────────────────────────────────────┘
                             │
                             ▼
-┌─────────────────────────────────────────────────────────────┐
-│                  API LAAG (fase 2)                          │
-│  FastAPI  GET /score/{ticker}  GET /sector/{id}             │
-└───────────────────────────┬─────────────────────────────────┘
-                            │
-                            ▼
-┌─────────────────────────────────────────────────────────────┐
-│                  AI NARRATIVE (fase 3)                      │
-│  Claude API: legt score UIT — berekent hem NIET             │
-│  Input:  "UMAC score 95, volume 12x, catalyst: DoD deal"    │
-│  Output: 2 zinnen contextuele uitleg                        │
-└─────────────────────────────────────────────────────────────┘
-                            │
-                            ▼
-┌─────────────────────────────────────────────────────────────┐
-│                  DASHBOARD (fase 3)                         │
-│  React frontend → calls localhost:8000 (of Vercel)         │
-└─────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                    API LAAG (FastAPI v2.2)                      │
+│                                                                 │
+│  GET /health                     → HealthResponse              │
+│  GET /analyze/{ticker}           → ScoringResponse             │
+│  GET /analyze/{ticker}?refresh   → (cache bypass)             │
+│  GET /analyze?tickers=A,B,C      → BatchScoringResponse        │
+│  GET /sector/{sector_name}       → SectorSnapshotResponse      │
+│                                                                 │
+│  Errors: ApiError schema (400/422/429/500)                     │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 3. BESTANDSSTRUCTUUR
+## 3. CACHE FLOW DETAIL
+
+```
+get_snapshot(ticker, force_refresh=False)
+    │
+    ├─ force_refresh=True? ──────────────────────────────► LIVE FETCH
+    │
+    ├─ CACHE_ENABLED=True?
+    │     │
+    │     └─ get_cached(ticker)
+    │           │
+    │           ├─ Entry aanwezig + niet te oud? ─► TickerSnapshot(cache_hit=True)
+    │           │                                    confidence = worst(field, age)
+    │           │
+    │           └─ Miss/verlopen ──────────────────► LIVE FETCH
+    │                                                    │
+    │                                              ┌─────┴──────┐
+    │                                           success?      fail?
+    │                                              │             │
+    │                                        set_cached()   cache fallback?
+    │                                              │             │
+    │                                        LIVE snap      DELAYED/STALE snap
+    │                                                        (of MISSING)
+    └─ CACHE_ENABLED=False ──────────────────────────────► LIVE FETCH (altijd)
+```
+
+---
+
+## 4. DATACONFIDENCE MATRIX
+
+| Situatie | Confidence |
+|---|---|
+| Alle velden aanwezig, data < 5 min oud | LIVE |
+| Data 5-60 min oud (cache hit) | DELAYED |
+| Data 1-2 uur oud (stale fallback) | STALE |
+| Prijs aanwezig, ≥2 optionele velden ontbreken | PARTIAL |
+| Prijs nul of ophaalfout, geen cache | MISSING |
+
+`worst_confidence(field_conf, age_conf)` → eindlabel voor gebruiker.
+
+---
+
+## 5. BESTANDSSTRUCTUUR (v2.2)
 
 ```
 momentum-intelligence/
-├── README.md
-├── MASTER_CONTEXT.md          Source of truth voor elke sessie
-├── ROADMAP.md                 Fase planning
-├── DECISIONS.md               Architectuurkeuzes met rationale
-├── CHANGELOG.md               Alle wijzigingen
-├── requirements.txt
-├── .gitignore                 .env nooit committen
-│
-├── config/
-│   └── sectors.json           Sector heat, leaders, sympathy map
-│                              Handmatig updaten, wekelijks
-│
-├── docs/
-│   ├── ARCHITECTURE.md        Dit bestand
-│   ├── SCORE_ENGINE.md        Technische spec
-│   ├── MOMENTUM_FRAMEWORK.md  Trading strategie
-│   ├── ANTI_GOALS.md          Wat dit systeem NIET is
-│   └── KNOWN_FAILURE_MODES.md Waar het systeem faalt
-│
-├── scoring/
-│   ├── __init__.py
-│   ├── scoring_v1_1.py        Vorige versie (archief)
-│   └── scoring_v1_2.py        Huidige engine
-│
-├── tests/
-│   └── __init__.py            Fase 2: test_scoring.py hier
-│
-└── (fase 2 toevoegingen)
-    ├── main.py                FastAPI entry point
-    └── data/
-        ├── yahoo.py           Prijs/volume ophalen
-        ├── finnhub.py         Nieuws/sentiment
-        ├── stocktwits.py      Social mentions
-        └── assembler.py       Bouwt TickerInput van alle bronnen
+├── backend/app.py              FastAPI — 4 endpoints
+├── cache/market_cache.py       In-memory cache, TTL, cooldowns
+├── data/
+│   ├── yahoo_client.py         Cache+retry+fallback
+│   ├── news_client.py          Placeholder (fase 2.2: Finnhub)
+│   └── assembler.py            TickerInput builder
+├── schemas/
+│   ├── ticker_snapshot.py      TickerSnapshot + DataConfidence + FreshnessInfo
+│   ├── scoring_response.py     ScoringResponse + Batch + Sector schemas
+│   ├── sector_state.py         SectorState
+│   └── api_error.py            ApiError + ErrorCode
+├── scoring/scoring_v1_2.py     Score engine (deterministisch)
+├── config/sectors.json         Sector config (wekelijks updaten)
+└── tests/
+    ├── test_scoring.py          70  engine
+    ├── test_backend.py          36  API
+    ├── test_data_stability.py   55  schemas + stability
+    └── test_cache.py            74  cache + batch + sector
 ```
 
 ---
 
-## 4. DATAFLOW PER TICKER (fase 2)
-
-```python
-# Fase 2 assembler.py (nog niet gebouwd)
-async def build_ticker_input(ticker: str) -> TickerInput:
-    price    = await yahoo.get_quote(ticker)
-    news     = await finnhub.get_news(ticker)
-    social   = await stocktwits.get_mentions(ticker)
-    sector   = load_sector_config(ticker_to_sector(ticker))
-
-    return TickerInput(
-        ticker          = ticker,
-        price           = price.last,
-        day_change_pct  = price.change_pct,
-        premarket_pct   = price.premarket_pct,
-        volume_today    = price.volume,
-        avg_volume_20d  = price.avg_volume_20d,
-        market_cap_usd  = price.market_cap,
-        float_shares    = price.float_shares,   # soms None
-        is_cfd_only     = False,                # handmatig of T212 API
-        catalyst_type   = classify_catalyst(news),
-        catalyst_description = news[0].headline if news else "Geen nieuws",
-        relative_strength = calc_rs(price, spy_return),
-        sector          = sector,
-        social_mentions_today = social.today,
-        social_mentions_avg   = social.avg_20d,
-        has_sec_investigation = check_sec_flag(ticker),
-        has_class_action      = check_class_action(ticker),
-        insider_sells_90d     = price.insider_sells_90d,
-    )
-```
-
-De `score_ticker()` functie verandert niet. Alleen de input verandert.
-
----
-
-## 5. API SECURITY (fase 2+)
+## 6. API SECURITY
 
 ```
-❌ NOOIT API keys in frontend code
-❌ NOOIT .env committen naar Git
-❌ NOOIT Anthropic API key in browser-requests
-
-✅ API keys in .env bestand (staat in .gitignore)
-✅ Backend als proxy: frontend → backend → externe API
+❌ NOOIT API keys in frontend of git
+❌ NOOIT .env committen
+✅ .env in .gitignore
 ✅ Vercel environment variables voor deployment
+✅ Backend als proxy — keys nooit in browser
 ```
-
----
-
-## 6. REVIEW PIPELINE
-
-```
-Finnhub/Yahoo data
-       ↓
-Claude — categoriseert, bouwt, implementeert
-       ↓
-Score Engine — algoritmische score
-       ↓
-ChatGPT — review: "is dit institutioneel of hype?"
-       ↓
-Igor — definitief oordeel + trade beslissing
-```
-
-GitHub repo = gedeeld geheugen tussen Claude en ChatGPT.
-Igor = altijd de laatste schakel.

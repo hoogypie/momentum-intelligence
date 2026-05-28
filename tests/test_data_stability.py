@@ -331,21 +331,21 @@ class TestMissingFieldHandling:
 class TestRetryBehavior:
     """Retry + exponential backoff in yahoo_client."""
 
+    def setup_method(self):
+        from cache.market_cache import clear_cache
+        clear_cache()
+
     def test_successful_first_try_no_retry(self):
         from data.yahoo_client import _MAX_RETRIES, _BACKOFF_SECS
         assert _MAX_RETRIES == 3
-        assert _BACKOFF_SECS[0] == 0.0  # eerste poging geen wachttijd
+        assert _BACKOFF_SECS[0] == 0.0
 
     def test_backoff_increases_per_attempt(self):
         from data.yahoo_client import _BACKOFF_SECS
-        # Wachttijden moeten oplopen
         for i in range(len(_BACKOFF_SECS) - 1):
             assert _BACKOFF_SECS[i] <= _BACKOFF_SECS[i + 1]
 
     def test_retries_used_zero_on_success(self):
-        """Succesvolle eerste poging → retries_used = 0."""
-        from data.yahoo_client import _fetch_once
-        # Mock een succesvolle fetch
         with patch("data.yahoo_client._fetch_once") as mock_fetch:
             snap = TickerSnapshot(
                 ticker="TEST",
@@ -358,28 +358,49 @@ class TestRetryBehavior:
             )
             mock_fetch.return_value = snap
             from data.yahoo_client import get_snapshot
-            result = get_snapshot("TEST")
+            result = get_snapshot("TEST_FRESH")
             assert result.retries_used == 0
 
-    def test_missing_snapshot_returned_on_all_failures(self):
-        """Na 3 mislukte pogingen → MISSING snapshot terug, geen exception."""
+    def test_missing_snapshot_when_no_cache_and_all_fail(self):
+        """Na 3 mislukte pogingen én geen cache → MISSING snapshot."""
+        from cache.market_cache import clear_cache, invalidate
+        invalidate("NOCACHE_TICKER")  # Verzeker lege cache voor deze ticker
         with patch("data.yahoo_client._fetch_once",
                    side_effect=Exception("Network error")):
-            with patch("time.sleep"):  # skip wachttijden in tests
+            with patch("time.sleep"):
                 from data.yahoo_client import get_snapshot
-                result = get_snapshot("TEST")
+                result = get_snapshot("NOCACHE_TICKER")
                 assert result.confidence == DataConfidence.MISSING
                 assert result.error is not None
                 assert result.price == 0.0
 
+    def test_stale_cache_returned_when_live_fails(self):
+        """Als live faalt maar cache beschikbaar → stale snapshot terug."""
+        from cache.market_cache import set_cached
+        set_cached("STALEFB", {"price": 42.0, "volume_today": 1_000_000,
+                               "avg_volume_20d": 500_000, "prev_close": 41.0,
+                               "day_change_pct": 2.4, "premarket_pct": 0.0,
+                               "premarket_available": False,
+                               "market_cap": 1e9, "float_shares": None},
+                   ttl_seconds=1)
+        with patch("data.yahoo_client._fetch_once",
+                   side_effect=Exception("Network error")):
+            with patch("time.sleep"):
+                from data.yahoo_client import get_snapshot
+                result = get_snapshot("STALEFB")
+                # Cache fallback levert data — niet MISSING
+                assert result.price > 0
+                assert result.cache_hit is True
+
     def test_never_raises_exception(self):
-        """get_snapshot gooit nooit een exception — altijd TickerSnapshot."""
+        from cache.market_cache import invalidate
+        invalidate("EXTEST")
         with patch("data.yahoo_client._fetch_once",
                    side_effect=RuntimeError("Fatal error")):
             with patch("time.sleep"):
                 from data.yahoo_client import get_snapshot
                 try:
-                    result = get_snapshot("TEST")
+                    result = get_snapshot("EXTEST")
                     assert isinstance(result, TickerSnapshot)
                 except Exception:
                     pytest.fail("get_snapshot gooidde een exception — dit mag niet")
@@ -405,7 +426,9 @@ class TestRateLimitHandling:
         assert _is_auth_error(Exception("403 forbidden"))
 
     def test_rate_limit_skips_remaining_retries(self):
-        """Bij rate limit: stop na eerste detectie, niet opnieuw proberen."""
+        """Bij rate limit: stop na eerste detectie."""
+        from cache.market_cache import invalidate
+        invalidate("RATELIMITEDTEST")
         call_count = 0
 
         def raise_rate_limit(ticker):
@@ -416,7 +439,7 @@ class TestRateLimitHandling:
         with patch("data.yahoo_client._fetch_once", side_effect=raise_rate_limit):
             with patch("time.sleep"):
                 from data.yahoo_client import get_snapshot
-                result = get_snapshot("TEST")
+                result = get_snapshot("RATELIMITEDTEST")
                 assert call_count == 1  # slechts één poging bij rate limit
                 assert result.confidence == DataConfidence.MISSING
 
@@ -444,21 +467,29 @@ class TestRateLimitHandling:
 # ── CACHE ARCHITECTURE TESTS ──────────────────────────────────────────────────
 
 class TestCacheArchitecture:
-    """Cache is disabled in v2.1 — architectuur klaar voor v2.2."""
+    """Cache is ACTIEF in v2.2 — architectuur gevalideerd."""
 
     def setup_method(self):
         clear_cache()
 
-    def test_cache_disabled_by_default(self):
-        assert CACHE_ENABLED is False
+    def test_cache_enabled_in_v22(self):
+        """Cache is geactiveerd in v2.2."""
+        assert CACHE_ENABLED is True
 
-    def test_get_cached_returns_none_when_disabled(self):
-        set_cached("TEST", {"price": 50.0})  # wordt genegeerd
-        result = get_cached("TEST")
-        assert result is None  # cache disabled
+    def test_get_cached_returns_none_when_miss(self):
+        """Cache miss → None."""
+        result = get_cached("NOTCACHED_TICKER")
+        assert result is None
+
+    def test_set_and_get_roundtrip(self):
+        """Cache roundtrip: opslaan → ophalen."""
+        set_cached("ROUNDTRIP", {"price": 50.0}, ttl_seconds=60)
+        result = get_cached("ROUNDTRIP")
+        assert result is not None
+        assert result.data["price"] == 50.0
 
     def test_set_cooldown_and_check(self):
-        """Cooldown registratie werkt ook als cache disabled is."""
+        """Cooldown registratie werkt."""
         set_cooldown("NVDA", seconds=60)
         assert is_cooling_down("NVDA")
 
@@ -468,15 +499,20 @@ class TestCacheArchitecture:
     def test_cache_stats_returns_dict(self):
         stats = cache_stats()
         assert "enabled" in stats
-        assert "entries" in stats
-        assert stats["enabled"] is False
+        assert "total_entries" in stats
+        assert stats["enabled"] is True
 
     def test_clear_cache_single_ticker(self):
-        """clear_cache werkt ook als cache disabled is (geen crash)."""
-        clear_cache("TEST")  # mag niet crashen
+        set_cached("CLEARSINGLE", {"price": 10.0})
+        clear_cache("CLEARSINGLE")
+        assert get_cached("CLEARSINGLE") is None
 
     def test_clear_cache_all(self):
-        clear_cache()  # mag niet crashen
+        set_cached("A", {"price": 1.0})
+        set_cached("B", {"price": 2.0})
+        clear_cache()
+        assert get_cached("A") is None
+        assert get_cached("B") is None
 
 
 # ── SECTOR STATE SCHEMA TESTS ─────────────────────────────────────────────────

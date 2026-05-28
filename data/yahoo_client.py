@@ -1,26 +1,13 @@
 """
 data/yahoo_client.py
-Yahoo Finance data client — v2.1
+Yahoo Finance data client — v2.2
 
-Wijzigingen t.o.v. v2.0:
-    - Retourneert TickerSnapshot i.p.v. QuoteData
-    - Retry met exponential backoff (max 3 pogingen)
-    - Rate limit detectie (429 / herhaalde 403)
-    - DataConfidence label per snapshot
-    - Timestamp op elke response
-    - Veld-validatie via Pydantic (ongeldig float → None)
-    - Nooit een exception gooien — altijd TickerSnapshot terug
-
-Retry strategie:
-    Poging 1: direct
-    Poging 2: 0.5s wachten
-    Poging 3: 1.5s wachten
-    Na 3 pogingen: MISSING snapshot teruggeven
-
-Rate limiting:
-    Yahoo geeft 429 of herhaalde 403 bij te veel requests.
-    Detectie via error keywords, cooldown prep in cache/market_cache.py.
-    In v2.1 nog geen automatische cooldown — alleen detectie + melding.
+Wijzigingen t.o.v. v2.1:
+    - Cache integratie: check → fetch → store
+    - Fallback: Yahoo faalt → stale cache leveren
+    - FreshnessInfo meegestuurd per snapshot
+    - force_refresh flag voor cache bypass
+    - Confidence combineert veld-kwaliteit + cache-leeftijd
 """
 
 import time
@@ -29,63 +16,109 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from schemas.ticker_snapshot import (
-    TickerSnapshot, DataConfidence, determine_confidence
+    TickerSnapshot, DataConfidence,
+    determine_confidence, age_to_confidence, worst_confidence,
+    FreshnessInfo,
+)
+from cache.market_cache import (
+    get_cached, set_cached, set_cooldown, is_cooling_down,
+    get_market_ttl, CACHE_ENABLED,
 )
 
 logger = logging.getLogger(__name__)
 
-# Retry configuratie
-_MAX_RETRIES   = 3
-_BACKOFF_SECS  = [0.0, 0.5, 1.5]   # wachttijd per poging
+_MAX_RETRIES  = 3
+_BACKOFF_SECS = [0.0, 0.5, 1.5]
 
 
-# ── RATE LIMIT DETECTIE ────────────────────────────────────────────────────────
+# ── RATE LIMIT DETECTIE ───────────────────────────────────────────────────────
 
 class YahooRateLimitError(Exception):
-    """Raised wanneer Yahoo Finance rate limiting detecteert."""
+    pass
 
 
 def _is_rate_limited(exc: Exception) -> bool:
     msg = str(exc).lower()
-    return any(kw in msg for kw in [
-        "429", "too many requests", "rate limit", "rate_limit"
-    ])
+    return any(kw in msg for kw in ["429", "too many requests", "rate limit"])
 
 
 def _is_auth_error(exc: Exception) -> bool:
-    """403 kan rate limit of geo-blocking zijn."""
     return "403" in str(exc) or "forbidden" in str(exc).lower()
 
 
-# ── CORE FETCH ─────────────────────────────────────────────────────────────────
+# ── SNAPSHOT → DICT (voor cache opslag) ──────────────────────────────────────
+
+def _snap_to_dict(s: TickerSnapshot) -> dict:
+    return {
+        "price":               s.price,
+        "prev_close":          s.prev_close,
+        "day_change_pct":      s.day_change_pct,
+        "premarket_price":     s.premarket_price,
+        "premarket_pct":       s.premarket_pct,
+        "premarket_available": s.premarket_available,
+        "volume_today":        s.volume_today,
+        "avg_volume_20d":      s.avg_volume_20d,
+        "market_cap":          s.market_cap,
+        "float_shares":        s.float_shares,
+    }
+
+
+def _dict_to_snap(ticker: str, d: dict, age: float, ttl_rem: float) -> TickerSnapshot:
+    """Herbouwt TickerSnapshot van cache-dict met juiste confidence labels."""
+    field_conf = determine_confidence(
+        price=d.get("price", 0.0),
+        volume_today=d.get("volume_today", 0),
+        market_cap=d.get("market_cap"),
+        float_shares=d.get("float_shares"),
+        premarket_available=d.get("premarket_available", False),
+        error=None,
+    )
+    age_conf  = age_to_confidence(age)
+    final_conf = worst_confidence(field_conf, age_conf)
+
+    return TickerSnapshot(
+        ticker=ticker.upper(),
+        timestamp=datetime.now(timezone.utc),
+        confidence=final_conf,
+        price=d.get("price", 0.0),
+        prev_close=d.get("prev_close", 0.0),
+        day_change_pct=d.get("day_change_pct", 0.0),
+        premarket_price=d.get("premarket_price"),
+        premarket_pct=d.get("premarket_pct", 0.0),
+        premarket_available=d.get("premarket_available", False),
+        volume_today=d.get("volume_today", 0),
+        avg_volume_20d=max(d.get("avg_volume_20d", 1), 1),
+        market_cap=d.get("market_cap"),
+        float_shares=d.get("float_shares"),
+        cache_hit=True,
+        data_age_seconds=round(age, 1),
+    )
+
+
+# ── LIVE FETCH ────────────────────────────────────────────────────────────────
 
 def _fetch_once(ticker: str) -> TickerSnapshot:
-    """
-    Één ophaalpoging zonder retry. Gooit exceptions door naar caller.
-    """
+    """Één live ophaalpoging. Gooit exceptions door naar caller."""
     import yfinance as yf
 
     t  = yf.Ticker(ticker)
     fi = t.fast_info
 
-    price      = _safe_float(fi, "last_price",      0.0)
-    prev_close = _safe_float(fi, "previous_close",  price)
+    price      = _safe_float(fi, "last_price",     0.0)
+    prev_close = _safe_float(fi, "previous_close", price)
 
     day_change_pct = (
-        ((price - prev_close) / prev_close * 100)
-        if prev_close > 0 else 0.0
+        ((price - prev_close) / prev_close * 100) if prev_close > 0 else 0.0
     )
 
-    # Pre-market
     pm_price = _safe_float(fi, "pre_market_price", None)
     if pm_price and prev_close > 0:
-        premarket_pct = (pm_price - prev_close) / prev_close * 100
+        premarket_pct       = (pm_price - prev_close) / prev_close * 100
         premarket_available = True
     else:
-        premarket_pct = 0.0
+        premarket_pct       = 0.0
         premarket_available = False
 
-    # Volume (1 maand history voor gemiddelde)
     hist = t.history(period="1mo", auto_adjust=True)
     if not hist.empty:
         avg_volume_20d = max(int(hist["Volume"].mean()), 1)
@@ -94,17 +127,13 @@ def _fetch_once(ticker: str) -> TickerSnapshot:
         avg_volume_20d = 1
         volume_today   = 0
 
-    # Market cap + float
-    market_cap   = _safe_float(fi, "market_cap",          None)
-    shares_out   = _safe_float(fi, "shares_outstanding",  None)
+    market_cap   = _safe_float(fi, "market_cap",         None)
+    shares_out   = _safe_float(fi, "shares_outstanding", None)
     float_shares = int(shares_out) if shares_out and shares_out > 0 else None
 
     confidence = determine_confidence(
-        price=price,
-        volume_today=volume_today,
-        market_cap=market_cap,
-        float_shares=float_shares,
-        premarket_available=premarket_available,
+        price=price, volume_today=volume_today, market_cap=market_cap,
+        float_shares=float_shares, premarket_available=premarket_available,
         error=None,
     )
 
@@ -122,21 +151,34 @@ def _fetch_once(ticker: str) -> TickerSnapshot:
         avg_volume_20d=avg_volume_20d,
         market_cap=float(market_cap) if market_cap and market_cap > 0 else None,
         float_shares=float_shares,
+        cache_hit=False,
+        data_age_seconds=0.0,
     )
 
 
-# ── PUBLIC INTERFACE ───────────────────────────────────────────────────────────
+# ── PUBLIC INTERFACE ──────────────────────────────────────────────────────────
 
-def get_snapshot(ticker: str) -> TickerSnapshot:
+def get_snapshot(ticker: str, force_refresh: bool = False) -> TickerSnapshot:
     """
-    Haalt marktdata op met retry + exponential backoff.
+    Haalt snapshot op. Volgorde:
+        1. Cache check (tenzij force_refresh)
+        2. Live fetch met retry
+        3. Cache fallback als live faalt
 
-    Altijd een TickerSnapshot terug — nooit een exception.
-    Bij alle fouten: MISSING snapshot met error veld ingevuld.
-
-    Retry strategie: max 3 pogingen, 0s / 0.5s / 1.5s backoff.
+    Altijd TickerSnapshot terug — nooit een exception.
     """
     ticker = ticker.upper().strip()
+
+    # 1. Cache check
+    if not force_refresh and CACHE_ENABLED:
+        entry = get_cached(ticker)
+        if entry and not entry.is_expired():
+            logger.debug(f"yahoo: cache hit {ticker} ({entry.age_seconds():.0f}s oud)")
+            snap = _dict_to_snap(ticker, entry.data, entry.age_seconds(),
+                                 entry.ttl_remaining())
+            return snap
+
+    # 2. Live fetch met retry
     last_error: Optional[Exception] = None
 
     for attempt in range(_MAX_RETRIES):
@@ -145,79 +187,80 @@ def get_snapshot(ticker: str) -> TickerSnapshot:
             time.sleep(wait)
 
         try:
-            snapshot = _fetch_once(ticker)
-            if attempt > 0:
-                logger.info(f"yahoo: {ticker} opgehaald na {attempt + 1} pogingen")
-            snapshot.retries_used = attempt
-            return snapshot
+            snap = _fetch_once(ticker)
+            snap.retries_used = attempt
+
+            # Opslaan in cache
+            if CACHE_ENABLED:
+                set_cached(ticker, _snap_to_dict(snap), ttl_seconds=get_market_ttl())
+                logger.debug(f"yahoo: {ticker} gecached (TTL {get_market_ttl()}s)")
+
+            return snap
 
         except Exception as exc:
             last_error = exc
 
             if _is_rate_limited(exc):
-                logger.warning(f"yahoo: rate limit bereikt voor {ticker}")
-                # Cache cooldown prep (actief in v2.2)
-                # from cache.market_cache import set_cooldown
-                # set_cooldown(ticker, seconds=60)
-                break   # Niet opnieuw proberen bij rate limit
+                logger.warning(f"yahoo: rate limit {ticker}")
+                set_cooldown(ticker, seconds=60)
+                break
 
             if _is_auth_error(exc) and attempt == 0:
-                logger.warning(f"yahoo: 403 voor {ticker}, één retry")
                 continue
 
-            logger.debug(
-                f"yahoo: poging {attempt + 1}/{_MAX_RETRIES} mislukt voor "
-                f"{ticker}: {exc}"
-            )
+            logger.debug(f"yahoo: poging {attempt + 1}/{_MAX_RETRIES} {ticker}: {exc}")
 
-    # Alle pogingen mislukt
+    # 3. Cache fallback bij live-fout
     error_msg = str(last_error) if last_error else "Onbekende fout"
-    logger.warning(f"yahoo: {ticker} mislukt na {_MAX_RETRIES} pogingen: {error_msg}")
 
+    if CACHE_ENABLED:
+        entry = get_cached(ticker)
+        if entry:
+            age = entry.age_seconds()
+            logger.warning(
+                f"yahoo: live mislukt, cache fallback {ticker} ({age:.0f}s oud)"
+            )
+            snap = _dict_to_snap(ticker, entry.data, age, entry.ttl_remaining())
+            snap.error = f"Live fetch mislukt: {error_msg} — serveren vanuit cache"
+            return snap
+
+    # 4. Volledig MISSING
+    logger.warning(f"yahoo: {ticker} volledig mislukt: {error_msg}")
     return TickerSnapshot(
         ticker=ticker,
         timestamp=datetime.now(timezone.utc),
         confidence=DataConfidence.MISSING,
-        price=0.0,
-        prev_close=0.0,
-        day_change_pct=0.0,
-        premarket_pct=0.0,
-        premarket_available=False,
-        volume_today=0,
-        avg_volume_20d=1,
+        price=0.0, prev_close=0.0, day_change_pct=0.0,
+        premarket_pct=0.0, premarket_available=False,
+        volume_today=0, avg_volume_20d=1,
         error=error_msg,
         retries_used=_MAX_RETRIES - 1,
+        cache_hit=False,
+        data_age_seconds=0.0,
     )
 
 
 def get_spy_return() -> float:
-    """
-    Dagsrendement van SPY voor relative strength.
-    Geeft 0.0 bij fout.
-    """
+    """SPY dagsrendement voor relative strength. Geeft 0.0 bij fout."""
     try:
         import yfinance as yf
-        fi = yf.Ticker("SPY").fast_info
+        fi         = yf.Ticker("SPY").fast_info
         price      = _safe_float(fi, "last_price",     0.0)
         prev_close = _safe_float(fi, "previous_close", price)
         if prev_close > 0:
             return round((price - prev_close) / prev_close * 100, 2)
     except Exception as exc:
-        logger.debug(f"yahoo: SPY ophalen mislukt: {exc}")
+        logger.debug(f"yahoo: SPY mislukt: {exc}")
     return 0.0
 
 
-# ── HELPERS ────────────────────────────────────────────────────────────────────
-
 def _safe_float(obj, attr: str, default):
-    """Attribuut ophalen zonder crash bij None of ontbrekend veld."""
     try:
         val = getattr(obj, attr, default)
         if val is None:
             return default
         f = float(val)
-        # NaN en Inf zijn ongeldige marktdata
-        if f != f or f == float("inf") or f == float("-inf"):
+        if f != f or abs(f) == float("inf"):
             return default
         return f
     except (TypeError, ValueError):

@@ -24,8 +24,8 @@ Layer 3 — AI Narrative  Claude explains the score. Never calculates it.
 
 | Phase | Description | Status |
 |---|---|---|
-| 1 | Score Engine | ✅ Complete — v1.3, 159/159 tests passing |
-| 2 | Python Backend | ✅ Complete — v2.1, Data Stability Layer |
+| 1 | Score Engine | ✅ Complete — v1.3, 235/235 tests passing |
+| 2 | Python Backend | ✅ Complete — v2.2, Caching & Freshness Layer |
 | 3 | Dashboard | 🔲 Later |
 | 4 | Deployment | 🔲 Later |
 | 5 | Data Expansion | 🔲 Optional |
@@ -47,6 +47,9 @@ uvicorn backend.app:app --reload --port 8000
 # Test endpoints
 curl http://localhost:8000/health
 curl http://localhost:8000/analyze/NVDA
+curl http://localhost:8000/analyze/NVDA?refresh=true
+curl "http://localhost:8000/analyze?tickers=IONQ,QBTS,RGTI"
+curl http://localhost:8000/sector/quantum
 curl http://localhost:8000/analyze/UMAC
 ```
 
