@@ -364,3 +364,24 @@ score en fallback events. Configureerbaar via env vars.
 **Rationale:** Zonder gestructureerde logging is productie-debugging onmogelijk.
 "CACHE:HIT ticker=NVDA age=42s conf=LIVE" is 10x sneller te debuggen dan
 generieke print statements. Middleware logt alle requests automatisch.
+
+---
+
+## D-021 | 28 mei 2026 | DOCS: Operating Manual als gezaghebbende bron
+
+**Beslissing:** Eén uitgebreide handleiding (docs/OPERATING_MANUAL.md) in
+plaats van verspreide documentatie over meerdere bestanden.
+
+**Rationale:** Alle technische details stonden correct in SCORE_ENGINE.md,
+ARCHITECTURE.md en TEMPORAL_ARCHITECTURE.md, maar er was geen document dat
+uitlegde *hoe het systeem te gebruiken*. Iemand die het project opnieuw opstart
+(inclusief een nieuwe Claude-sessie) kon niet snel antwoord vinden op:
+"Wanneer vertrouw ik de score niet?" of "Hoe interpreteer ik een FAILED grade?"
+
+De Operating Manual vult die gap — praktisch en opinionated, niet technisch.
+De technische docs (SCORE_ENGINE.md, ARCHITECTURE.md, etc.) blijven bestaan
+voor implementatiedetails.
+
+**Sessiebrug:** MASTER_CONTEXT.md + DECISIONS.md zijn de twee bestanden die
+mee moeten naar een nieuwe Claude-sessie. De Operating Manual is voor de
+gebruiker (Igor); MASTER_CONTEXT is voor de builder (Claude).

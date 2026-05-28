@@ -4,47 +4,33 @@
 
 ---
 
-## [v2.7] — 28 mei 2026 — Signal Evaluation Layer
+## [v2.8] — 28 mei 2026 — Documentation & Operating Manual
 
-**Context:** v2.6 maakte signalen inzichtelijk via replay. v2.7 evalueert
-ze achteraf: was een BUY_MODERATE signaal daadwerkelijk gevolgd door
-prijsstijging? Geen ML, geen predictie — puur historische vergelijking.
+**Context:** v2.7 completeerde de evaluatie-laag. v2.8 is een
+documentatie-only release — geen nieuwe code, geen nieuwe endpoints,
+geen wijzigingen aan de score engine.
 
-**Nieuwe storage modules:**
-- storage/evaluation_store.py  — SignalOutcome persistence per ticker
-  (storage/data/evaluations/). Idempotent via version_id.
-- storage/signal_evaluator.py  — Core grade logic, future price lookup,
-  statistics breakdown, global stats, top signals
+**Nieuw:**
+- docs/OPERATING_MANUAL.md — uitgebreide gebruikershandleiding:
+  - Architectuur op één pagina
+  - Lokaal draaien (setup, first use, make commands)
+  - Volledige workflow: data → scoring → storage → replay → evaluatie
+  - Scores interpreteren (alle labels, thresholds, componenten)
+  - Evaluatieresultaten interpreteren (grades, statistieken, vuistregels)
+  - Bekende beperkingen (Yahoo, Finnhub, evaluatie, score engine)
+  - Wanneer het systeem NIET vertrouwen (8 concrete scenario's)
+  - Versioning en tagging policy
+  - Snelreferentie (alle endpoints, score mapping, env vars)
 
-**Grade logica:**
-- BUY signalen: SUCCESS ≥+3% / FAILED ≤-3% / NEUTRAL tussenin
-- SKIP/BLOCKED: SUCCESS als prijs daadwerkelijk daalde ≤-2%
-- WATCH: altijd NEUTRAL (geen richting)
-- Tijdshorizon prioriteit: 1d → 4h → 1h → PENDING
-- Tolerantievensters: 1h=[45-75min], 4h=[3-5h], 1d=[20-28h], 3d=[60-84h]
+**Bijgewerkt:**
+- MASTER_CONTEXT.md — volledig herschreven voor v2.8
+- README.md — versie bijgewerkt
+- CHANGELOG.md — v2.8 entry
+- DECISIONS.md — D-021
 
-**research/evaluation_report.py:**
-- Markdown rapporten per ticker + globaal
-- JSON export met statistieken + outcomes
-- ticker_evaluation_report(), global_summary_report()
+**Geen code wijzigingen. Test suite ongewijzigd: 530/530 ✅**
 
-**Nieuwe API endpoints:**
-- POST /evaluation/run/{ticker}    — Trigger evaluatie (on-demand)
-- GET  /evaluation/ticker/{ticker} — Resultaten + statistieken
-- GET  /evaluation/session/{date}  — Alle evaluaties van één dag
-- GET  /evaluation/top-signals     — Beste/slechtste signalen ooit
-- GET  /evaluation/stats           — Globale statistieken
-
-**Voorbeeld output:**
-- IONQ BREAKOUT BUY_MODERATE: SUCCESS (return_1d=+6.1%, basis=1d)
-- IONQ EXPANSION BUY_STRONG:  FAILED  (return_1d=-4.5%, basis=1d)
-- NEUTRAL fase: success_rate 0% vs BREAKOUT fase 33%
-
-**Tests:** tests/test_evaluation.py — 64 tests
-**Totaal:** 530/530 ✅
-
-**Evaluatie beïnvloedt scoring nooit direct.**
-
+---
 ---
 ---
 ---
