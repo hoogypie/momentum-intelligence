@@ -24,7 +24,7 @@ Layer 3 — AI Narrative  Claude explains the score. Never calculates it.
 
 | Phase | Description | Status |
 |---|---|---|
-| 1 | Score Engine | ✅ Complete — v1.2, 11/11 tests passing |
+| 1 | Score Engine | ✅ Complete — v1.3, 70/70 tests passing |
 | 2 | Python Backend | 🔲 Next |
 | 3 | Dashboard | 🔲 Later |
 | 4 | Deployment | 🔲 Later |
@@ -45,7 +45,36 @@ uvicorn main:app --reload
 
 ---
 
-## Repository Structure
+## How to Run Tests
+
+```bash
+# Install pytest (one-time)
+pip install pytest
+
+# Run all 70 tests
+pytest tests/ -v
+
+# Run a specific class
+pytest tests/test_scoring.py::TestHardBlocked -v
+pytest tests/test_scoring.py::TestRegression -v
+
+# Stop at first failure
+pytest tests/ -x --tb=short
+```
+
+| Test Class | What it covers |
+|---|---|
+| `TestHardBlocked` | SEC / CFD / class action vetoes |
+| `TestSkipScore` | Soft skip penalties |
+| `TestCombinationRule` | catalyst=NONE + momentum<50 → SKIP |
+| `TestMomentumComponents` | Each scoring formula in isolation |
+| `TestSocialQualityCap` | Social capped per catalyst quality |
+| `TestFloatScore` | Float tiers + None fallback |
+| `TestPhaseDetection` | ACCUMULATION → EXHAUSTION |
+| `TestMarketCapTier` | Tier assignment + sizing caps |
+| `TestRegression` | All 11 mock cases with momentum/skip ranges |
+
+
 
 ```
 momentum-intelligence/

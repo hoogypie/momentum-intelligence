@@ -9,5 +9,5 @@ yfinance==0.2.36
 pandas==2.2.0
 requests==2.31.0
 
-# Dev
-pytest==8.0.0
+# Testing
+pytest==9.0.3

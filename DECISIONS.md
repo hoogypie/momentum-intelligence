@@ -211,3 +211,31 @@ Claude: structuur, code, documentatie. ChatGPT: strategische kritiek,
 Zonder menselijke arbiter kunnen twee AI's elkaars fouten versterken.
 
 **GitHub als gedeeld geheugen:** Beide AI's lezen MASTER_CONTEXT.md als source of truth.
+
+---
+
+## D-011 | 28 mei 2026 | TESTING: pytest + assert_decision() helper
+
+**Beslissing:** Formele pytest test-suite als vereiste vóór live data integratie (fase 2).
+
+**Rationale:** Mock tests in scoring_v1_2.py valideren logica maar beschermen
+niet tegen regressies bij refactoring. Een `assert result.decision == "BUY_MAX"`
+na een gewichtswijziging faalt direct en toont exact welk getal buiten bereik viel.
+Zonder test-suite is fase 2 (live data) bouwen op een onzekere fundering.
+
+**assert_decision() helper:**
+Centrale assertiefunctie met duidelijke foutmeldingen (ticker, verwacht, actueel,
+momentum, skip). Maakt het onmiddellijk duidelijk wát fout ging bij een regressie.
+
+**make_input() factory:**
+Minimalistische TickerInput constructie met veilige defaults. Gefocuste unit tests
+overschrijven alleen het veld dat relevant is. Dit voorkomt boilerplate en maakt
+tests leesbaar als specificaties.
+
+**Regressie-aanpak:**
+Ranges (±5 pts marge) in plaats van exacte scores. Exacte scores zijn fragiel —
+elke gewichtsaanpassing breekt alle tests. Ranges vangen echte regressies maar
+tolereren kleine kalibraties.
+
+**Beslissingscriterium fase 2:** Alle 70 tests moeten groen zijn vóór live data
+wordt geïntegreerd. Bij elke pull request: `pytest tests/ -v` verplicht.

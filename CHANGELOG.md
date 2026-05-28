@@ -4,6 +4,38 @@
 
 ---
 
+## [v1.3] — 28 mei 2026 — Testing Infrastructure
+
+**Context:** Score engine v1.2 werkte correct maar had geen formele regressiebeveiliging.
+Live data toevoegen zonder test-suite = geen vangnet bij regressies.
+
+**Toegevoegd:**
+- `tests/test_scoring.py` — 70 pytest tests, 9 klassen
+- `conftest.py` — root-level pytest path configuratie
+- `requirements.txt` — pytest==9.0.3 toegevoegd
+
+**Test klassen:**
+- `TestHardBlocked` — SEC/CFD/class action vetoes (7 tests)
+- `TestSkipScore` — soft skip penalties (11 tests)
+- `TestCombinationRule` — catalyst=NONE + momentum<50 (3 tests)
+- `TestMomentumComponents` — elke formule geïsoleerd (12 tests)
+- `TestSocialQualityCap` — social capped per catalyst (6 tests)
+- `TestFloatScore` — float tiers + None fallback (6 tests)
+- `TestPhaseDetection` — alle fases incl. edge cases (6 tests)
+- `TestMarketCapTier` — tier + sizing caps (6 tests)
+- `TestDecisionThresholds` — grenswaarden BUY-niveaus (2 tests)
+- `TestRegression` — 11 mock cases + samengestelde run (12 tests)
+
+**README:**
+- Sectie "How to run tests" toegevoegd
+- Project status: v1.3, 70/70 tests passing
+
+**Test resultaten:** 70/70 ✅ in 0.11s
+
+**Geen nieuwe features toegevoegd.**
+
+---
+
 ## [v1.2.1] — 28 mei 2026 — README Cleanup
 
 **Context:** README verwees nog naar v1.1 en scoring_v1_1.py na de v1.2 release.
