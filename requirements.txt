@@ -11,3 +11,4 @@ requests==2.31.0
 
 # Testing
 pytest==9.0.3
+httpx==0.26.0

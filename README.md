@@ -24,8 +24,8 @@ Layer 3 — AI Narrative  Claude explains the score. Never calculates it.
 
 | Phase | Description | Status |
 |---|---|---|
-| 1 | Score Engine | ✅ Complete — v1.3, 70/70 tests passing |
-| 2 | Python Backend | 🔲 Next |
+| 1 | Score Engine | ✅ Complete — v1.3, 105/105 tests passing |
+| 2 | Python Backend | ✅ Complete — v2.0, FastAPI + Yahoo Finance |
 | 3 | Dashboard | 🔲 Later |
 | 4 | Deployment | 🔲 Later |
 | 5 | Data Expansion | 🔲 Optional |
@@ -35,12 +35,19 @@ Layer 3 — AI Narrative  Claude explains the score. Never calculates it.
 ## Quick Start
 
 ```bash
-# Phase 1 — run score engine tests (no dependencies)
-python3 scoring/scoring_v1_2.py
-
-# Phase 2 — coming soon
+# Install dependencies
 pip install -r requirements.txt
-uvicorn main:app --reload
+
+# Run score engine tests (no network required)
+pytest tests/ -v
+
+# Start local backend
+uvicorn backend.app:app --reload --port 8000
+
+# Test endpoints
+curl http://localhost:8000/health
+curl http://localhost:8000/analyze/NVDA
+curl http://localhost:8000/analyze/UMAC
 ```
 
 ---
@@ -78,27 +85,38 @@ pytest tests/ -x --tb=short
 
 ```
 momentum-intelligence/
-├── README.md                   This file
-├── MASTER_CONTEXT.md           Source of truth for all Claude/ChatGPT sessions
-├── ROADMAP.md                  Phase plan with task checklists
-├── DECISIONS.md                Architecture decisions with rationale
-├── CHANGELOG.md                All changes, newest first
-├── requirements.txt            Python dependencies
+├── README.md
+├── MASTER_CONTEXT.md
+├── ROADMAP.md
+├── DECISIONS.md
+├── CHANGELOG.md
+├── requirements.txt
+├── conftest.py                 pytest path config
 ├── .gitignore
+├── backend/
+│   ├── __init__.py
+│   └── app.py                  FastAPI — /health + /analyze/{ticker}
+├── data/
+│   ├── __init__.py
+│   ├── yahoo_client.py         Yahoo Finance: prijs, volume, market cap
+│   ├── news_client.py          Finnhub placeholder (fase 2.1)
+│   └── assembler.py            Bouwt TickerInput van alle bronnen
 ├── docs/
-│   ├── ARCHITECTURE.md         System architecture + dataflow diagrams
-│   ├── ANTI_GOALS.md           Explicit non-goals
-│   ├── KNOWN_FAILURE_MODES.md  Documented failure scenarios + risk matrix
-│   ├── MOMENTUM_FRAMEWORK.md   Trading framework, sector map, sympathy plays
-│   └── SCORE_ENGINE.md         Technical spec: formulas, thresholds, test cases
+│   ├── ARCHITECTURE.md
+│   ├── ANTI_GOALS.md
+│   ├── KNOWN_FAILURE_MODES.md
+│   ├── MOMENTUM_FRAMEWORK.md
+│   └── SCORE_ENGINE.md
 ├── scoring/
 │   ├── __init__.py
-│   ├── scoring_v1_1.py         Previous engine (archive)
-│   └── scoring_v1_2.py         Current engine — pure functions, no AI
+│   ├── scoring_v1_1.py         (archief)
+│   └── scoring_v1_2.py         Huidige engine
 ├── config/
-│   └── sectors.json            Sector heat config — update weekly
+│   └── sectors.json
 └── tests/
-    └── __init__.py             (Phase 2: test_scoring.py here)
+    ├── __init__.py
+    ├── test_scoring.py         70 engine tests
+    └── test_backend.py         35 backend + assembler tests
 ```
 
 ---

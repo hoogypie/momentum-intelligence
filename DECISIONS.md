@@ -239,3 +239,23 @@ tolereren kleine kalibraties.
 
 **Beslissingscriterium fase 2:** Alle 70 tests moeten groen zijn vóór live data
 wordt geïntegreerd. Bij elke pull request: `pytest tests/ -v` verplicht.
+
+---
+
+## D-012 | 28 mei 2026 | BACKEND: FastAPI + Placeholder Clients
+
+**Beslissing:** v2.0 backend met placeholder clients voor news en social.
+Echte data alleen voor Yahoo Finance (prijs/volume). News en social = fase 2.1.
+
+**Rationale:** Een werkende backend met gedeeltelijke data is beter dan
+wachten op alle data tegelijk. De `data_quality` velden in de response
+communiceren transparant welke data beschikbaar was. De gebruiker ziet
+altijd of scores gebaseerd zijn op echte of placeholder data.
+
+**Placeholder strategie:**
+- `news_client.py` retourneert lege lijst → catalyst=NONE (meest conservatief)
+- Social = 0/1 → geen social score → minder risico op social-pump false positives
+- `has_sec_investigation=False` → handmatige check vereist (FM-008)
+
+**Testbaarheid:** Alle backend tests gebruiken mocks (unittest.mock).
+Geen netwerk vereist voor de test-suite. Werkt in elke CI-omgeving.

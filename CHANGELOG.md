@@ -4,6 +4,34 @@
 
 ---
 
+## [v2.0] — 28 mei 2026 — Lokale Backend + Data Ingestion
+
+**Context:** Score engine v1.3 had 105 tests en een solide fundering.
+v2.0 voegt de eerste echte data-laag toe: Yahoo Finance prijsdata +
+een FastAPI backend die ScoringResult terugstuurt.
+
+**Toegevoegd:**
+- `backend/app.py` — FastAPI, GET /health + GET /analyze/{ticker}
+- `backend/__init__.py`
+- `data/yahoo_client.py` — prijs, volume, market cap, float (via yfinance)
+- `data/news_client.py` — placeholder (fase 2.1: Finnhub)
+- `data/assembler.py` — bouwt TickerInput, classify_catalyst(), RS berekening
+- `data/__init__.py`
+- `tests/test_backend.py` — 35 backend + assembler tests (alle gemockt)
+- `requirements.txt` — yfinance, fastapi, uvicorn toegevoegd
+
+**Bekende beperkingen v2.0 (gedocumenteerd in response):**
+- `catalyst_type` altijd NONE (news placeholder)
+- `social_acceleration` altijd 0 (geen StockTwits key)
+- `has_sec_investigation` altijd False (handmatige check)
+- `float_shares` via `shares_outstanding` (benadering)
+
+**Test resultaten:** 105/105 ✅ (70 engine + 35 backend, geen netwerk vereist)
+
+**Geen nieuwe features in score engine.**
+
+---
+
 ## [v1.3] — 28 mei 2026 — Testing Infrastructure
 
 **Context:** Score engine v1.2 werkte correct maar had geen formele regressiebeveiliging.
