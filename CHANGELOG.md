@@ -4,6 +4,21 @@
 
 ---
 
+## [v1.2.1] — 28 mei 2026 — README Cleanup
+
+**Context:** README verwees nog naar v1.1 en scoring_v1_1.py na de v1.2 release.
+
+**Gewijzigd:**
+- `README.md` — Project Status: v1.2, 11/11 tests passing
+- `README.md` — Quick Start: scoring_v1_1.py → scoring_v1_2.py
+- `README.md` — Repository Structure: nieuwe docs toegevoegd (ARCHITECTURE, ANTI_GOALS, KNOWN_FAILURE_MODES)
+- `README.md` — Team: ChatGPT reviewer rol toegevoegd
+- `CHANGELOG.md` — dit item
+
+**Geen nieuwe features toegevoegd.**
+
+---
+
 ## [v1.2] — 28 mei 2026 — Engine Hardening
 
 **Context:** v1.1 had correcte beslissingslogica maar miste float amplificatie,

@@ -24,7 +24,7 @@ Layer 3 — AI Narrative  Claude explains the score. Never calculates it.
 
 | Phase | Description | Status |
 |---|---|---|
-| 1 | Score Engine | ✅ Complete — v1.1, 8/8 tests passing |
+| 1 | Score Engine | ✅ Complete — v1.2, 11/11 tests passing |
 | 2 | Python Backend | 🔲 Next |
 | 3 | Dashboard | 🔲 Later |
 | 4 | Deployment | 🔲 Later |
@@ -36,7 +36,7 @@ Layer 3 — AI Narrative  Claude explains the score. Never calculates it.
 
 ```bash
 # Phase 1 — run score engine tests (no dependencies)
-python3 scoring/scoring_v1_1.py
+python3 scoring/scoring_v1_2.py
 
 # Phase 2 — coming soon
 pip install -r requirements.txt
@@ -50,22 +50,26 @@ uvicorn main:app --reload
 ```
 momentum-intelligence/
 ├── README.md                   This file
-├── MASTER_CONTEXT.md           Source of truth for all Claude sessions
+├── MASTER_CONTEXT.md           Source of truth for all Claude/ChatGPT sessions
 ├── ROADMAP.md                  Phase plan with task checklists
 ├── DECISIONS.md                Architecture decisions with rationale
 ├── CHANGELOG.md                All changes, newest first
 ├── requirements.txt            Python dependencies
 ├── .gitignore
 ├── docs/
+│   ├── ARCHITECTURE.md         System architecture + dataflow diagrams
+│   ├── ANTI_GOALS.md           Explicit non-goals
+│   ├── KNOWN_FAILURE_MODES.md  Documented failure scenarios + risk matrix
 │   ├── MOMENTUM_FRAMEWORK.md   Trading framework, sector map, sympathy plays
 │   └── SCORE_ENGINE.md         Technical spec: formulas, thresholds, test cases
 ├── scoring/
 │   ├── __init__.py
-│   └── scoring_v1_1.py         Current engine — pure functions, no AI
+│   ├── scoring_v1_1.py         Previous engine (archive)
+│   └── scoring_v1_2.py         Current engine — pure functions, no AI
 ├── config/
 │   └── sectors.json            Sector heat config — update weekly
 └── tests/
-    └── test_scoring.py         (Phase 2)
+    └── __init__.py             (Phase 2: test_scoring.py here)
 ```
 
 ---
@@ -75,6 +79,7 @@ momentum-intelligence/
 | Role | Who | Responsibility |
 |---|---|---|
 | Product Owner / Strategist | Igor | Direction, trading logic, risk model, priorities |
+| Reviewer | ChatGPT | Risk analysis, "institutional or hype?" challenge |
 | Builder | Claude | Code, architecture, implementation, tests |
 
 ---
