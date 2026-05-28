@@ -148,3 +148,66 @@
 **Implicatie:** Wat verandert er in de codebase/workflow?
 **Gerelateerd:** CHANGELOG v-X.Y, of eerder beslissing D-XXX
 ```
+
+---
+
+## D-010 | 28 mei 2026 | QBTS KALIBRATIE: BUY_SMALL i.p.v. BUY_MODERATE
+
+**Beslissing:** QBTS scoort 59.4 in v1.2 (was 60.4 in v1.1) → BUY_SMALL.
+Dit wordt niet gecorrigeerd.
+
+**Rationale:** De score verschoof door drie kleine gewichtsaanpassingen:
+volume -3 pts, social -2 pts, float None=+4 pts. Nettoverschil: -1.0 pt.
+QBTS als sympathy play met moderate catalyst en neutrale float is
+BUY_SMALL conservatiever maar niet onjuist. De threshold aanpassen
+om een testuitkomst te behouden is slechte praktijk.
+
+**Beslissing:** Accepteer de herbalancering. QBTS BUY_SMALL is correct gedrag.
+
+---
+
+## D-009 | 28 mei 2026 | SOCIAL QUALITY CAP: Gestaffeld per Catalyst
+
+**Beslissing:** Social score gecapped per catalyst kwaliteit:
+NONE=2, WEAK=4, MODERATE=6, STRONG=8 pts.
+
+**Rationale:** Zonder cap kan een aandeel dat viraal gaat zonder enige
+fundamentele catalyst 10/100 punten scoren op social alleen.
+De combinatieregel (catalyst=NONE + momentum<50 → SKIP) vangt veel
+gevallen al op, maar een aandeel met hoge andere scores én geen catalyst
+kon toch tot 30+ pts komen via social. De cap zorgt dat social nooit
+meer dan 8% van de totale score kan zijn — en bij slechte catalyst kwaliteit
+slechts 2-6%.
+
+**Bewijs:** SOCIALPUMP_T11: social velocity 45x maar gecapped op 2 pts.
+Totale momentum score 31.7 → SKIP via combinatieregel.
+
+---
+
+## D-008 | 28 mei 2026 | FLOAT SCORE: Nieuw Component Max 8 Pts
+
+**Beslissing:** Float score toegevoegd als zevende scoring component.
+
+**Rationale:** Float is een fundamentele driver van momentum amplificatie.
+Bij een lage float (<5M aandelen) kan institutioneel koopvolume de prijs
+significant bewegen. Bij een hoog float (>200M) heeft hetzelfde koopvolume
+veel minder impact. De engine miste dit tot v1.2.
+
+**Implementatie:** float=None → neutrale score 4/8 (onbekend ≠ laag of hoog).
+Schaal: <5M=8, <15M=6.5, <50M=4.5, <200M=2, ≥200M=0.
+
+**Bewijs:** LOWFLOAT_T9 (2.8M float) scoort 8/8 float pts → bijdrage aan
+totale score 99.6/100.
+
+---
+
+## D-007 | 28 mei 2026 | WORKFLOW: Twee-AI Review Pipeline
+
+**Beslissing:** Claude = builder. ChatGPT = strategist/risk reviewer. Igor = arbiter.
+
+**Rationale:** Twee AI-modellen met verschillende biases vullen elkaar aan.
+Claude: structuur, code, documentatie. ChatGPT: strategische kritiek,
+"is dit institutioneel of hype?". Igor blijft altijd de laatste schakel.
+Zonder menselijke arbiter kunnen twee AI's elkaars fouten versterken.
+
+**GitHub als gedeeld geheugen:** Beide AI's lezen MASTER_CONTEXT.md als source of truth.
