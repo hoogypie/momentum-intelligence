@@ -32,3 +32,6 @@ data/cache/
 *.csv
 *.parquet
 storage/data/
+storage/data/
+research/replay_notes/
+research/signal_reviews/

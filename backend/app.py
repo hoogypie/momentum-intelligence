@@ -600,3 +600,174 @@ def invalidate_ticker(ticker: str) -> dict:
         "message": f"Cache {'verwijderd' if removed else 'niet aanwezig'} voor {ticker}. "
                    f"Historische data blijft intact.",
     }
+
+
+# ── REPLAY ENDPOINTS (v2.6) ───────────────────────────────────────────────────
+
+from storage.replay_engine  import replay_ticker, replay_sector, replay_session
+from storage.timeline       import (
+    get_ticker_summary, score_timeline, confidence_history,
+    get_all_tracked_summaries,
+)
+from storage.snapshot_diff  import diff_series, find_significant_changes
+from research.observation_store import (
+    save_replay_note, save_signal_review, list_replay_notes,
+    list_signal_reviews, list_observations, create_observation_template,
+)
+
+
+@app.get(
+    "/replay/ticker/{ticker}",
+    tags=["history"],
+    summary="Volledige ticker replay met diffs",
+    operation_id="replay_ticker_endpoint",
+)
+def replay_ticker_endpoint(
+    ticker: str,
+    limit:  int   = Query(100, description="Max snapshots",   ge=1, le=500),
+    hours:  float = Query(None, description="Filter op uren", ge=1, le=720),
+    export: bool  = Query(False, description="Sla replay op in research/"),
+) -> JSONResponse:
+    """
+    Volledige replay van een ticker: snapshots, diffs, significante
+    veranderingen, score-tijdlijn, fase-history, effective signals.
+
+    Optioneel: `export=true` slaat replay op in research/replay_notes/.
+    """
+    ticker = ticker.upper().strip()
+
+    if not ticker.replace("-", "").isalpha():
+        raise HTTPException(400, detail=invalid_ticker(ticker).model_dump())
+
+    data = replay_ticker(ticker, limit=limit, hours=hours)
+
+    if data["snapshot_count"] == 0:
+        raise HTTPException(404, detail={
+            "error":   "NO_HISTORY",
+            "ticker":  ticker,
+            "message": f"Geen snapshots voor {ticker}. "
+                       f"Roep /analyze/{ticker} aan om tracking te starten.",
+        })
+
+    if export:
+        path = save_replay_note(ticker, data)
+        data["exported_to"] = path
+        logger.info(f"replay: {ticker} geëxporteerd naar {path}")
+
+    return JSONResponse(content={**data, "replayed_at": datetime.now(timezone.utc).isoformat()})
+
+
+@app.get(
+    "/replay/sector/{sector}",
+    tags=["sector", "history"],
+    summary="Sector replay met leader performance",
+    operation_id="replay_sector_endpoint",
+)
+def replay_sector_endpoint(
+    sector: str,
+    limit:  int  = Query(50, description="Max sector snapshots", ge=1, le=200),
+    export: bool = Query(False, description="Sla replay op in research/"),
+) -> JSONResponse:
+    """
+    Sector replay: heat trend, leader scores over tijd, heat delta.
+
+    Berekent automatisch `heat_delta` (recente heat minus oudste heat).
+    Positief = sector warmt op. Negatief = sector koelt af.
+    """
+    data = replay_sector(sector.lower(), limit=limit)
+
+    if export:
+        path = save_replay_note(f"SECTOR_{sector.upper()}", data)
+        data["exported_to"] = path
+
+    return JSONResponse(content={**data, "replayed_at": datetime.now(timezone.utc).isoformat()})
+
+
+@app.get(
+    "/replay/session/{date}",
+    tags=["history"],
+    summary="Sessie replay voor een specifieke datum",
+    operation_id="replay_session_endpoint",
+)
+def replay_session_endpoint(
+    date: str,
+    max_tickers: int  = Query(50, description="Max tickers om te scannen",
+                               ge=1, le=200),
+    export:      bool = Query(False),
+) -> JSONResponse:
+    """
+    Alle activiteit van een specifieke datum.
+
+    `date` formaat: YYYY-MM-DD (bijv. 2026-05-28)
+
+    Returns per ticker: snapshots, peak_score, peak_decision.
+    Includeert een session summary: beste ticker van de dag.
+    """
+    data = replay_session(date, max_tickers=max_tickers)
+
+    if "error" in data:
+        raise HTTPException(400, detail=data)
+
+    if export and data["total_snapshots"] > 0:
+        path = save_replay_note(f"SESSION_{date}", data)
+        data["exported_to"] = path
+
+    return JSONResponse(content={**data, "replayed_at": datetime.now(timezone.utc).isoformat()})
+
+
+@app.get(
+    "/replay/summary",
+    tags=["history"],
+    summary="Overzicht van alle getrackte tickers",
+    operation_id="replay_summary",
+)
+def replay_summary_endpoint() -> JSONResponse:
+    """
+    Samenvatting van alle tickers die ooit gescoord zijn.
+    Per ticker: snapshot count, current decision, score range, days tracked.
+    """
+    summaries = get_all_tracked_summaries()
+    return JSONResponse(content={
+        "ticker_count": len(summaries),
+        "tickers":      summaries,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+    })
+
+
+@app.get(
+    "/replay/ticker/{ticker}/diff",
+    tags=["history"],
+    summary="Snapshot diffs voor één ticker",
+    operation_id="ticker_diffs",
+)
+def ticker_diffs(
+    ticker:      str,
+    limit:       int  = Query(50, description="Max snapshots voor diff"),
+    significant: bool = Query(False, description="Alleen significante veranderingen"),
+) -> JSONResponse:
+    """
+    Berekent diffs tussen opeenvolgende snapshots.
+
+    `significant=true` filtert op veranderingen waarbij:
+    - De beslissing veranderde
+    - De fase veranderde
+    - De score met ≥10 punten veranderde
+    - Een nieuw catalyst verscheen
+    """
+    from storage.snapshot_store import load_snapshots
+    from storage.snapshot_diff  import diff_series, find_significant_changes
+    import dataclasses
+
+    ticker = ticker.upper()
+    snaps  = load_snapshots(ticker, limit=limit)
+    diffs  = diff_series(snaps)
+
+    if significant:
+        diffs = find_significant_changes(diffs)
+
+    return JSONResponse(content={
+        "ticker":       ticker,
+        "diff_count":   len(diffs),
+        "diffs":        [dataclasses.asdict(d) for d in diffs],
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+    })

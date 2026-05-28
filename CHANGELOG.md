@@ -4,46 +4,43 @@
 
 ---
 
-## [v2.5] — 28 mei 2026 — Historical Memory Layer
+## [v2.6] — 28 mei 2026 — Replay & Observation Tooling
 
-**Context:** v2.4 was een real-time scanner. Elke request was stateloos —
-geen geheugen van wat er eerder gescoord was. v2.5 voegt tijddimensie toe:
-snapshots persisteren, fase-overgangen worden getrackt, signalen verouderen.
+**Context:** v2.5 sloeg snapshots op. v2.6 maakt ze bruikbaar voor analyse
+en debugging. Replay-laag leest storage — raakt scoring nooit aan.
 
-**Nieuwe storage laag (storage/):**
-- snapshot_store.py  — JSON Lines persistence per ticker, trim op MAX_SNAPSHOTS
-- signal_decay.py    — FRESH/AGING/STALE/OLD/EXPIRED + decay multipliers
-- signal_tracker.py  — Fase-overgangen, catalyst tijdlijn, momentum trend
-- sector_history.py  — Sector heat + momentum trend over tijd
-- history_replay.py  — Evolutie, window check, sector trend
+**Nieuwe storage modules:**
+- storage/snapshot_diff.py  — Diff tussen snapshots: score delta, beslissing,
+  fase, catalyst, confidence. significant-filter voor ruis-reductie.
+- storage/timeline.py       — first_seen, last_updated, strongest_signal,
+  confidence_history, score_timeline, phase_history, ticker_summary
+- storage/replay_engine.py  — replay_ticker (diffs+timeline), replay_sector
+  (heat delta, leader data), replay_session (dag-overzicht per ticker)
+
+**Nieuwe research/ module:**
+- research/observation_store.py — Auto-gegenereerde replay notes (JSON),
+  signal reviews (JSON + Markdown), handmatige observatie templates
+
+**CLI export tool:**
+- scripts/export_snapshots.py — ticker/sector/session/all-tickers/list
+  python3 scripts/export_snapshots.py ticker IONQ --review
 
 **Nieuwe API endpoints:**
-- GET /history/{ticker}             — Signaal evolutie + decay
-- GET /history/{ticker}/window      — Is momentum window nog open?
-- GET /history/{ticker}/transitions — Fase-overgangen + catalyst tijdlijn
-- GET /sector/{name}/trend          — Sector heat trend
+- GET /replay/ticker/{ticker}      — Volledige replay met diffs
+- GET /replay/ticker/{ticker}/diff — Gefocuste diff view (?significant=true)
+- GET /replay/sector/{sector}      — Sector replay + heat delta
+- GET /replay/session/{date}       — Dag-overzicht (YYYY-MM-DD)
+- GET /replay/summary              — Alle getrackte tickers
 
-**Automatische persistence:**
-- Elke /analyze call slaat snapshot op
-- Fase-overgangen worden automatisch gedetecteerd
-- Catalyst wijzigingen worden bijgehouden
-- persist=false query param voor score zonder opslag
+**Voorbeeld diff output:**
+- BUY_MODERATE → BUY_STRONG | (+9.0 score) | fase BREAKOUT → EXPANSION
 
-**Signal Decay model:**
-- FRESH (0-2u): 1.00x, geen downgrade
-- AGING (2-8u): 0.85x, geen downgrade
-- STALE (8-24u): 0.65x, 1 stap lager
-- OLD (24-48u): 0.40x, altijd WATCH
-- EXPIRED (>48u): 0.0x, altijd SKIP
-- FRENZY extra decay: ×0.70 bij AGING/STALE
+**Tests:** tests/test_replay.py — 60 tests
+**Totaal:** 466/466 ✅
 
-**Nieuwe documentatie:** docs/TEMPORAL_ARCHITECTURE.md
+**Geen nieuwe scoring features. Replay leest nooit het scoring process aan.**
 
-**Tests:** tests/test_history.py — 63 tests
-**Totaal:** 406/406 ✅
-
-**Geen nieuwe scoring features.**
-
+---
 ---
 ---
 ---
