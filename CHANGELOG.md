@@ -4,49 +4,49 @@
 
 ---
 
-## [v2.2] — 28 mei 2026 — Caching & Data Freshness Layer
+## [v2.3] — 28 mei 2026 — API Polish & Developer Experience
 
-**Context:** v2.1 had retry en schemas maar geen echte cache. Elke request
-haalde live data op. v2.2 voegt in-memory cache toe, freshness labels,
-batch/sector endpoints en stale-fallback logic.
+**Context:** v2.2 had werkende endpoints maar geen OpenAPI polish, geen smoke
+test, geen gestructureerde logging en geen developer scripts. v2.3 maakt de
+backend klaar voor gebruik door een frontend developer (of door Claude in fase 3).
 
-**Cache (actief):**
-- `CACHE_ENABLED = True` in cache/market_cache.py
-- TTL per marktperiode: regular=60s, afterhours=300s, overnight=1800s
-- Ticker-based opslag, market-hours-aware, age-based logging
-
-**DataConfidence uitgebreid:**
-- STALE toegevoegd (>60 min oud)
-- Drempels: LIVE<300s | DELAYED<3600s | STALE<7200s | dan verwijderd
-- `worst_confidence()` combineert veld-kwaliteit + cache-leeftijd
-
-**Freshness metadata in responses:**
-- `cache_hit`, `data_age_seconds` in DataQuality
-- FreshnessInfo model in schemas/ticker_snapshot.py
-
-**Yahoo fallback logic:**
-- Yahoo faalt → stale cache serveren (DELAYED/STALE confidence)
-- Alleen MISSING als geen cache beschikbaar
-- force_refresh=True → altijd live, cache bypass
+**OpenAPI Polish:**
+- Tags: health, analysis, sector, cache
+- Descriptions en summaries per endpoint
+- Response voorbeelden in schema
+- operation_id per endpoint
+- FastAPI Swagger UI + ReDoc actief
 
 **Nieuwe endpoints:**
-- `GET /analyze?tickers=A,B,C` — batch, max 10, partial failure tolerant
-- `GET /sector/{sector_name}` — leaders + sympathy + avg momentum
-- `GET /analyze/{ticker}?refresh=true` — cache invalidatie per ticker
+- GET /cache/stats (was alleen intern)
+- DELETE /cache/{ticker} (handmatige invalidatie)
 
-**Cache invalidatie:**
-- `invalidate(ticker)` per ticker
-- `invalidate_all()` volledige cache
-- Cooldown verloopt automatisch bij check
+**Structured Logging:**
+- backend/logging_config.py — setup_logging(), get_logger()
+- RequestLoggingMiddleware — elke request gelogd
+- log_cache_event(), log_score_event(), log_fallback_event()
+- Configureerbaar via LOG_LEVEL en LOG_FORMAT env vars
+- Noisy 3rd-party loggers beperkt
 
-**Nieuwe tests:**
-- tests/test_cache.py — 74 tests (cache, batch, sector, freshness)
-- tests/test_data_stability.py — 8 tests bijgewerkt voor enabled cache
+**Developer Scripts:**
+- scripts/smoke_test.py — CLI smoke test, mockbaar in tests
+- scripts/run_backend.py — cross-platform backend starter
+- Makefile — make run / test / smoke / lint / clean
 
-**Test resultaten:** 235/235 ✅
+**Developer Config:**
+- .env.example — template voor alle environment variables
+
+**Documentatie:**
+- docs/API.md — volledig endpoint overzicht, voorbeeldresponses,
+  error codes, cache behavior, confidence labels
+
+**Tests:**
+- tests/test_dev_experience.py — 51 tests
+- Totaal: 286/286 ✅
 
 **Geen nieuwe scoring features.**
 
+---
 ---
 ---
 

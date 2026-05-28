@@ -342,3 +342,25 @@ als niet gecached. Eén mislukte leader stopt de sector niet.
 **Rationale:** Sector scans zijn nuttig als snelle oriëntatie ("hoe staat quantum
 er nu voor?"). Cache-first maakt dit snel (<100ms bij alle leaders gecached).
 Live-fallback zorgt dat ook ongecachte leaders worden meegenomen.
+
+---
+
+## D-019 | 28 mei 2026 | OPENAPI: Tags + Descriptions + Operation IDs
+
+**Beslissing:** Alle endpoints hebben tags, summaries, operation_ids en
+response_descriptions. FastAPI Swagger UI en ReDoc actief.
+
+**Rationale:** Een frontend developer (of fase 3 AI layer) die de API integreert
+heeft duidelijke documentatie nodig. OpenAPI schema is de officiële contract-
+definitie. Operation IDs maken geautomatiseerde client generatie mogelijk.
+
+---
+
+## D-020 | 28 mei 2026 | LOGGING: Structured Middleware + Log Helpers
+
+**Beslissing:** RequestLoggingMiddleware + specifieke log helpers voor cache,
+score en fallback events. Configureerbaar via env vars.
+
+**Rationale:** Zonder gestructureerde logging is productie-debugging onmogelijk.
+"CACHE:HIT ticker=NVDA age=42s conf=LIVE" is 10x sneller te debuggen dan
+generieke print statements. Middleware logt alle requests automatisch.

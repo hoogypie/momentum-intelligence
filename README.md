@@ -25,7 +25,7 @@ Layer 3 — AI Narrative  Claude explains the score. Never calculates it.
 | Phase | Description | Status |
 |---|---|---|
 | 1 | Score Engine | ✅ Complete — v1.3, 235/235 tests passing |
-| 2 | Python Backend | ✅ Complete — v2.2, Caching & Freshness Layer |
+| 2 | Python Backend | ✅ Complete — v2.3, API Polish + Dev Experience |
 | 3 | Dashboard | 🔲 Later |
 | 4 | Deployment | 🔲 Later |
 | 5 | Data Expansion | 🔲 Optional |
