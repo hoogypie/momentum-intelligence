@@ -385,3 +385,28 @@ voor implementatiedetails.
 **Sessiebrug:** MASTER_CONTEXT.md + DECISIONS.md zijn de twee bestanden die
 mee moeten naar een nieuwe Claude-sessie. De Operating Manual is voor de
 gebruiker (Igor); MASTER_CONTEXT is voor de builder (Claude).
+
+---
+
+## D-022 | 28 mei 2026 | ALERTING: Storage-first, geen live fetching
+
+**Beslissing:** Alert engine werkt puur op opgeslagen snapshots.
+Geen live Yahoo Finance calls bij alert scan.
+
+**Rationale:** Als alerts live data zouden fetchen, zou elke alert scan
+extra Yahoo requests triggeren — rate limits, latency, extra kosten.
+Door te werken op opgeslagen snapshots is een alert scan altijd instant.
+Het nadeel: alerts zijn alleen zo recent als de laatste /analyze call.
+Dat is acceptabel — alerts zijn een analyse-tool, geen real-time feed.
+
+---
+
+## D-023 | 28 mei 2026 | COOLDOWNS: Per trigger-type, niet per ticker
+
+**Beslissing:** Cooldown wordt bijgehouden per (ticker, trigger_type) combinatie,
+niet per ticker als geheel.
+
+**Rationale:** Een IONQ ticker kan tegelijk een momentum_threshold en een
+phase_transition alert hebben — beide zijn waardevol. Als we de cooldown op
+ticker-niveau zetten, zou de tweede alert onderdrukt worden. Per trigger-type
+zorgt dat elke soort alert onafhankelijk gecooldown wordt.

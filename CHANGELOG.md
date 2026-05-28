@@ -4,32 +4,57 @@
 
 ---
 
-## [v2.8] — 28 mei 2026 — Documentation & Operating Manual
+## [v2.9] — 28 mei 2026 — Alerting & Watchlist Layer
 
-**Context:** v2.7 completeerde de evaluatie-laag. v2.8 is een
-documentatie-only release — geen nieuwe code, geen nieuwe endpoints,
-geen wijzigingen aan de score engine.
+**Context:** v2.8 was documentatie-only. v2.9 voegt actionable monitoring
+toe: watchlists bijhouden welke tickers gescand moeten worden, de alert
+engine detecteert wat er veranderd is en genereert gestructureerde alerts.
 
-**Nieuw:**
-- docs/OPERATING_MANUAL.md — uitgebreide gebruikershandleiding:
-  - Architectuur op één pagina
-  - Lokaal draaien (setup, first use, make commands)
-  - Volledige workflow: data → scoring → storage → replay → evaluatie
-  - Scores interpreteren (alle labels, thresholds, componenten)
-  - Evaluatieresultaten interpreteren (grades, statistieken, vuistregels)
-  - Bekende beperkingen (Yahoo, Finnhub, evaluatie, score engine)
-  - Wanneer het systeem NIET vertrouwen (8 concrete scenario's)
-  - Versioning en tagging policy
-  - Snelreferentie (alle endpoints, score mapping, env vars)
+**Nieuwe alerting/ laag:**
+- alerting/alert_engine.py    Trigger logic op opgeslagen snapshots
+- alerting/alert_store.py     Alert history persistence
+- alerting/cooldown_manager.py  Dedup + cooldown per trigger-type
+- alerting/watchlist_manager.py  Watchlist CRUD
 
-**Bijgewerkt:**
-- MASTER_CONTEXT.md — volledig herschreven voor v2.8
-- README.md — versie bijgewerkt
-- CHANGELOG.md — v2.8 entry
-- DECISIONS.md — D-021
+**Alert trigger types:**
+- momentum_threshold  Score kruist decision-grens
+- phase_transition    Fase verandert (NEUTRAL naar BREAKOUT)
+- sector_heat_spike   Sector heat stijgt >10 punten
+- volume_anomaly      Volume ratio > drempelwaarde
+- confidence_downgrade  Confidence verslechtert (LIVE naar STALE)
+- buy_max_signal      Score >= 90 (altijd HIGH/CRITICAL)
+- score_drop          Score daalt >15 punten
+- evaluation_insight  Historisch patroon gedetecteerd
 
-**Geen code wijzigingen. Test suite ongewijzigd: 530/530 ✅**
+**Severity:** INFO | WATCH | HIGH | CRITICAL
+**Cooldowns:** CRITICAL=30min | HIGH=60min | WATCH=120min | INFO=240min
 
+**Watchlists (watchlists/):**
+- core.json           Kernposities (NVDA, MU, GOOGL, ASML, MSFT)
+- momentum.json       Actieve momentum setups
+- sector_rotation.json  Sector rotatie plays
+
+**Endpoints:**
+- GET  /alerts                      Recent alerts
+- GET  /watchlists                  Alle watchlists
+- GET  /watchlists/{name}           Specifieke watchlist
+- POST /watchlists/{name}           Nieuwe watchlist
+- POST /watchlists/{name}/add       Ticker toevoegen
+- POST /watchlists/{name}/remove    Ticker verwijderen
+- POST /alerts/scan                 Scan alle watchlist-tickers
+- POST /alerts/scan/{ticker}        Scan een ticker
+
+**Voorbeeld alert:**
+  HIGH: QBTS: BUY_SMALL naar BUY_STRONG (score 52 naar 81, +29 pts)
+  HIGH: QBTS: fase ACCUMULATION naar BREAKOUT
+  HIGH: QBTS: volume 6.8x normaal
+
+**Tests:** tests/test_alerting.py -- 69 tests
+**Totaal:** 599/599
+
+**Alerting observeert signalen -- raakt scoring nooit aan.**
+
+---
 ---
 ---
 ---

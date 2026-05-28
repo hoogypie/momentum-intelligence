@@ -15,6 +15,7 @@ Wijzigingen t.o.v. v2.4:
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import JSONResponse
 from datetime import datetime, timezone
+from typing import Optional
 import dataclasses, enum, logging, os
 
 from backend.logging_config import (
@@ -1009,3 +1010,224 @@ def get_evaluation_stats(export: bool = Query(False)) -> JSONResponse:
         **stats,
         "generated_at": datetime.now(timezone.utc).isoformat(),
     })
+
+
+# ── ALERTING & WATCHLIST ENDPOINTS (v2.9) ────────────────────────────────────
+
+from alerting.alert_store       import (
+    load_alerts, load_recent_alerts, list_alerted_tickers,
+    count_alerts_by_severity,
+)
+from alerting.alert_engine      import scan_ticker, scan_all_watchlists
+from alerting.cooldown_manager  import cooldown_stats, clear_all_cooldowns
+from alerting.watchlist_manager import (
+    list_watchlists, load_watchlist, create_watchlist,
+    add_ticker as wl_add, remove_ticker as wl_remove, delete_watchlist,
+    get_all_watchlist_tickers, get_ticker_watchlists,
+)
+
+
+@app.get(
+    "/alerts",
+    tags=["alerts"],
+    summary="Recente alerts",
+    operation_id="get_alerts",
+)
+def get_alerts(
+    ticker:   Optional[str] = Query(None,   description="Filter op ticker"),
+    severity: Optional[str] = Query(None,   description="Minimum severity (INFO/WATCH/HIGH/CRITICAL)"),
+    hours:    float          = Query(24.0,   description="Tijdvenster in uren"),
+    limit:    int            = Query(50,     description="Max aantal alerts", ge=1, le=200),
+) -> JSONResponse:
+    """
+    Geeft recente alerts terug, optioneel gefilterd op ticker en severity.
+
+    Alerts worden automatisch gegenereerd na elke `/analyze` call
+    en bij `/alerts/scan`.
+    """
+    if ticker:
+        alerts = load_alerts(
+            ticker=ticker.upper(),
+            severity=severity,
+            limit=limit,
+        )
+    else:
+        alerts = load_recent_alerts(hours=hours, limit=limit)
+        if severity:
+            from alerting.alert_store import severity_rank
+            min_rank = severity_rank(severity)
+            alerts   = [a for a in alerts
+                        if severity_rank(a.get("severity", "INFO")) >= min_rank]
+            alerts   = alerts[:limit]
+
+    return JSONResponse(content={
+        "count":        len(alerts),
+        "alerts":       alerts,
+        "filter_ticker": ticker,
+        "filter_severity": severity,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+    })
+
+
+@app.post(
+    "/alerts/scan",
+    tags=["alerts"],
+    summary="Trigger alert scan voor alle watchlist-tickers",
+    operation_id="scan_alerts",
+)
+def trigger_alert_scan() -> JSONResponse:
+    """
+    Scant alle tickers in alle watchlists op nieuwe alerts.
+
+    Vergelijkt de twee meest recente snapshots per ticker.
+    Vereist minimaal 2 opgeslagen snapshots per ticker
+    (via eerdere `/analyze` calls).
+    """
+    result = scan_all_watchlists()
+    total  = sum(len(v) for v in result.values())
+
+    return JSONResponse(content={
+        "tickers_scanned": len(get_all_watchlist_tickers()),
+        "tickers_with_alerts": len(result),
+        "total_alerts_fired":  total,
+        "by_ticker":           result,
+        "scanned_at":          datetime.now(timezone.utc).isoformat(),
+    })
+
+
+@app.post(
+    "/alerts/scan/{ticker}",
+    tags=["alerts"],
+    summary="Scan één ticker op alerts",
+    operation_id="scan_ticker_alerts",
+)
+def scan_one_ticker(ticker: str) -> JSONResponse:
+    """
+    Scant één ticker op nieuwe alerts.
+    Werkt ook als de ticker niet in een watchlist staat.
+    """
+    ticker = ticker.upper().strip()
+    if not ticker.replace("-", "").isalpha():
+        raise HTTPException(400, detail=invalid_ticker(ticker).model_dump())
+
+    from dataclasses import asdict
+    wl_names = get_ticker_watchlists(ticker)
+    wl_config = None
+    if wl_names:
+        wl_config = load_watchlist(wl_names[0])
+
+    fired = scan_ticker(ticker, wl_config, wl_names[0] if wl_names else None)
+
+    return JSONResponse(content={
+        "ticker":          ticker,
+        "alerts_fired":    len(fired),
+        "watchlists":      wl_names,
+        "alerts":          [asdict(a) for a in fired],
+        "scanned_at":      datetime.now(timezone.utc).isoformat(),
+    })
+
+
+# ── WATCHLIST ENDPOINTS ───────────────────────────────────────────────────────
+
+@app.get(
+    "/watchlists",
+    tags=["alerts"],
+    summary="Overzicht van alle watchlists",
+    operation_id="get_watchlists",
+)
+def get_watchlists() -> JSONResponse:
+    """
+    Geeft alle watchlists terug (ingebouwd + custom).
+
+    Ingebouwde watchlists: core, momentum, sector_rotation.
+    Custom watchlists: aangemaakt via POST /watchlists.
+    """
+    wls = list_watchlists()
+    return JSONResponse(content={
+        "count":      len(wls),
+        "watchlists": wls,
+        "all_tickers": get_all_watchlist_tickers(),
+    })
+
+
+@app.get(
+    "/watchlists/{name}",
+    tags=["alerts"],
+    summary="Specifieke watchlist ophalen",
+    operation_id="get_watchlist",
+    responses={404: {"description": "Watchlist niet gevonden"}},
+)
+def get_watchlist(name: str) -> JSONResponse:
+    """Geeft details van één watchlist incl. alle alert-instellingen."""
+    wl = load_watchlist(name.lower())
+    if not wl:
+        raise HTTPException(404, detail={
+            "error":   "WATCHLIST_NOT_FOUND",
+            "name":    name,
+            "message": f"Watchlist '{name}' niet gevonden.",
+        })
+    return JSONResponse(content=wl)
+
+
+@app.post(
+    "/watchlists",
+    tags=["alerts"],
+    summary="Maak nieuwe custom watchlist aan",
+    operation_id="create_watchlist",
+)
+def create_watchlist_endpoint(
+    name:        str = Query(..., description="Naam (a-z, 0-9, _)"),
+    description: str = Query("",  description="Omschrijving"),
+    tickers:     str = Query("",  description="Komma-gescheiden tickers"),
+) -> JSONResponse:
+    """
+    Maakt een nieuwe custom watchlist aan.
+
+    Namen mogen alleen kleine letters, cijfers en underscores bevatten.
+    Tickers worden automatisch in hoofdletters omgezet.
+    """
+    ticker_list = [t.strip() for t in tickers.split(",") if t.strip()]
+    try:
+        wl = create_watchlist(name.lower(), description, ticker_list)
+        return JSONResponse(content={
+            "created": True,
+            "watchlist": wl,
+        })
+    except ValueError as exc:
+        raise HTTPException(400, detail={"error": "INVALID_WATCHLIST", "message": str(exc)})
+
+
+@app.post(
+    "/watchlists/{name}/add",
+    tags=["alerts"],
+    summary="Voeg ticker toe aan watchlist",
+    operation_id="add_to_watchlist",
+)
+def add_ticker_to_watchlist(
+    name:   str,
+    ticker: str = Query(..., description="Ticker om toe te voegen"),
+) -> JSONResponse:
+    """Voegt een ticker toe aan een bestaande watchlist."""
+    try:
+        wl = wl_add(name.lower(), ticker)
+        return JSONResponse(content={"updated": True, "watchlist": wl})
+    except ValueError as exc:
+        raise HTTPException(400, detail={"error": "WATCHLIST_ERROR", "message": str(exc)})
+
+
+@app.post(
+    "/watchlists/{name}/remove",
+    tags=["alerts"],
+    summary="Verwijder ticker van watchlist",
+    operation_id="remove_from_watchlist",
+)
+def remove_ticker_from_watchlist(
+    name:   str,
+    ticker: str = Query(..., description="Ticker om te verwijderen"),
+) -> JSONResponse:
+    """Verwijdert een ticker van een watchlist."""
+    try:
+        wl = wl_remove(name.lower(), ticker)
+        return JSONResponse(content={"updated": True, "watchlist": wl})
+    except ValueError as exc:
+        raise HTTPException(400, detail={"error": "WATCHLIST_ERROR", "message": str(exc)})

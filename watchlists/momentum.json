@@ -1,0 +1,12 @@
+{
+  "name": "momentum",
+  "description": "Actieve momentum plays — quantum computing + AI infra",
+  "tickers": ["IONQ", "QBTS", "RGTI", "CRDO", "NBIS"],
+  "min_alert_severity": "INFO",
+  "alert_on_phase_change": true,
+  "alert_on_score_threshold": 60,
+  "alert_on_score_drop": true,
+  "alert_on_volume_spike": true,
+  "volume_spike_threshold": 3.0,
+  "created_at": "2026-05-28T00:00:00Z"
+}
