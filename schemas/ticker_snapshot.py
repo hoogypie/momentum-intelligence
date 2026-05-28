@@ -22,8 +22,11 @@ Twee assen bepalen de confidence:
 
 from pydantic import BaseModel, Field, field_validator
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 from enum import Enum
+
+if TYPE_CHECKING:
+    from data.market_session import MarketSession
 
 
 class DataConfidence(str, Enum):
@@ -123,9 +126,12 @@ class TickerSnapshot(BaseModel):
     error:               Optional[str]   = None
     retries_used:        int             = 0
 
-    # Freshness metadata — optional voor backward compat
+    # Freshness metadata
     cache_hit:           bool  = False
     data_age_seconds:    float = 0.0
+
+    # Market session context (v2.4)
+    market_session:      Optional[str]  = None  # MarketSession value or None
 
     @field_validator("ticker")
     @classmethod

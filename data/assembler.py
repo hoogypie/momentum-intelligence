@@ -1,23 +1,31 @@
 """
 data/assembler.py
-Assembler — v2.2
+Assembler — v2.4
 
-Wijzigingen t.o.v. v2.1:
-    - DataQuality bevat freshness velden (cache_hit, data_age_seconds, ttl_remaining)
-    - force_refresh parameter doorgegeven aan yahoo_client
-    - Missing field handling ongewijzigd
+Wijzigingen t.o.v. v2.3:
+    - Gebruikt news_client.classify_catalyst_from_headlines()
+    - Gebruikt social_client.get_social_data()
+    - Negative news flags via news_client
+    - market_session in DataQuality
+    - Sector heat via sector_intelligence (dynamic blending)
+    - News confidence scoring in DataQuality
 """
 
 import json, os, logging
 from typing import Optional
 
-from data.yahoo_client  import get_snapshot, get_spy_return
-from data.news_client   import get_news, has_sec_flag, NewsItem
+from data.yahoo_client   import get_snapshot, get_spy_return
+from data.news_client    import (
+    get_news, has_sec_flag, NewsItem,
+    classify_catalyst_from_headlines, NewsConfidence,
+)
+from data.social_client  import get_social_data
+from data.market_session import get_market_session, MarketSession
+from data.sector_intelligence import get_dynamic_sector_heat
 from schemas.ticker_snapshot import DataConfidence
 from schemas.scoring_response import DataQuality
 from scoring.scoring_v1_2 import (
-    TickerInput, SectorConfig,
-    CatalystType, RelativeStrength,
+    TickerInput, SectorConfig, CatalystType, RelativeStrength,
 )
 
 logger = logging.getLogger(__name__)
@@ -46,13 +54,29 @@ def _load_sectors() -> dict:
     return _load_sectors._cache
 
 
-def _find_sector(ticker: str) -> SectorConfig:
+def _find_sector(ticker: str, cache_fn=None) -> SectorConfig:
+    """
+    Zoekt sector op. Met cache_fn: berekent dynamische heat.
+    Zonder cache_fn: gebruikt statische heat.
+    """
     u = ticker.upper()
     for s in _load_sectors().get("sectors", []):
         if u in s.get("leaders", []) or u in s.get("sympathy", []):
+            heat = s["heat"]
+            if cache_fn:
+                try:
+                    heat = get_dynamic_sector_heat(
+                        sector_id=s["id"],
+                        static_heat=s["heat"],
+                        leaders=s.get("leaders", []),
+                        cache_fn=cache_fn,
+                    )
+                except Exception as exc:
+                    logger.debug(f"assembler: dynamic heat mislukt: {exc}")
+
             return SectorConfig(
                 sector_id=s["id"], sector_label=s["label"],
-                heat=s["heat"], phase=s.get("phase", 1),
+                heat=heat, phase=s.get("phase", 1),
                 leaders=s.get("leaders", []), sympathy=s.get("sympathy", []),
             )
     return _DEFAULT_SECTOR
@@ -60,31 +84,31 @@ def _find_sector(ticker: str) -> SectorConfig:
 
 # ── CLASSIFIERS ───────────────────────────────────────────────────────────────
 
-def _classify_catalyst(news: list[NewsItem]) -> tuple[CatalystType, str]:
-    if not news:
-        return CatalystType.NONE, "Geen nieuws opgehaald (news_client placeholder)"
-
-    headline = news[0].headline.lower()
-    STRONG   = ["earnings beat","beats estimate","exceeds","record revenue",
-                 "contract awarded","government contract","dod contract",
-                 "guidance raised","raised guidance","acquisition","merger",
-                 "fda approval","blowout","massive beat"]
-    MODERATE = ["upgrade","partnership","collaboration","expansion",
-                 "new product","launch","deal signed","analyst","outperform"]
-    WEAK     = ["explores","considers","plans to","evaluates","announces",
-                 "update","appoints"]
-
-    if any(kw in headline for kw in STRONG):   return CatalystType.STRONG,   news[0].headline
-    if any(kw in headline for kw in MODERATE): return CatalystType.MODERATE, news[0].headline
-    if any(kw in headline for kw in WEAK):     return CatalystType.WEAK,     news[0].headline
-    return CatalystType.MODERATE, news[0].headline
+def _classify_catalyst(news: list[NewsItem]) -> tuple[CatalystType, str, list[str]]:
+    """Delegate naar news_client voor uitgebreidere classificatie."""
+    cat_str, desc, neg_flags = classify_catalyst_from_headlines(news)
+    cat_map = {
+        "STRONG":   CatalystType.STRONG,
+        "MODERATE": CatalystType.MODERATE,
+        "WEAK":     CatalystType.WEAK,
+        "NONE":     CatalystType.NONE,
+    }
+    return cat_map.get(cat_str, CatalystType.NONE), desc, neg_flags
 
 
-def _classify_relative_strength(stock_pct: float, spy_pct: float) -> RelativeStrength:
+def _classify_relative_strength(
+    stock_pct: float,
+    spy_pct:   float,
+) -> RelativeStrength:
     diff = stock_pct - spy_pct
-    if spy_pct < 0 and stock_pct > 0: return RelativeStrength.STRONG_POSITIVE
-    if diff > 1.5:                     return RelativeStrength.MODERATE_POSITIVE
-    if diff < -1.5:                    return RelativeStrength.UNDERPERFORMING
+
+    if spy_pct < -0.3 and stock_pct > 0.3:
+        return RelativeStrength.STRONG_POSITIVE   # groen bij rode markt
+
+    # Gegradueerde drempels voor meer precisie
+    if diff > 2.5:    return RelativeStrength.STRONG_POSITIVE
+    if diff > 1.0:    return RelativeStrength.MODERATE_POSITIVE
+    if diff < -2.0:   return RelativeStrength.UNDERPERFORMING
     return RelativeStrength.NEUTRAL
 
 
@@ -106,7 +130,12 @@ def _safe_volume(snapshot) -> tuple[int, int]:
 
 # ── DATA QUALITY ──────────────────────────────────────────────────────────────
 
-def _build_data_quality(snapshot, news: list[NewsItem]) -> DataQuality:
+def _build_data_quality(
+    snapshot,
+    news: list[NewsItem],
+    neg_flags: list[str],
+    session: MarketSession,
+) -> DataQuality:
     return DataQuality(
         price_available     = snapshot.price > 0,
         volume_available    = snapshot.volume_today > 0,
@@ -114,7 +143,7 @@ def _build_data_quality(snapshot, news: list[NewsItem]) -> DataQuality:
         premarket_available = snapshot.premarket_available,
         news_available      = len(news) > 0,
         social_available    = False,
-        sec_check_automated = False,
+        sec_check_automated = bool(os.getenv("FINNHUB_API_KEY", "")),
         confidence          = snapshot.confidence,
         fetch_error         = snapshot.error,
         retries_used        = snapshot.retries_used,
@@ -126,29 +155,28 @@ def _build_data_quality(snapshot, news: list[NewsItem]) -> DataQuality:
 # ── MAIN ASSEMBLER ────────────────────────────────────────────────────────────
 
 def build_ticker_input(
-    ticker: str,
+    ticker:        str,
     force_refresh: bool = False,
 ) -> tuple[TickerInput, DataQuality]:
     """
-    Bouwt TickerInput van live/cached data.
-
-    Args:
-        ticker:        Ticker symbol
-        force_refresh: True = cache bypass, altijd live ophalen
-
-    Returns: (TickerInput, DataQuality)
-    Nooit een exception.
+    Bouwt TickerInput van live/gecachede data.
+    v2.4: Finnhub nieuws, social client, dynamic sector heat.
     """
     ticker   = ticker.upper().strip()
     snapshot = get_snapshot(ticker, force_refresh=force_refresh)
     news     = get_news(ticker, hours=48)
+    social   = get_social_data(ticker)
     spy      = get_spy_return()
-    quality  = _build_data_quality(snapshot, news)
+    session  = get_market_session()
 
-    catalyst_type, catalyst_desc = _classify_catalyst(news)
-    rs      = _classify_relative_strength(snapshot.day_change_pct, spy)
-    sector  = _find_sector(ticker)
+    # Cache functie voor dynamic sector heat
+    from cache.market_cache import get_cached as _cache_fn
+
+    catalyst_type, catalyst_desc, neg_flags = _classify_catalyst(news)
+    rs     = _classify_relative_strength(snapshot.day_change_pct, spy)
+    sector = _find_sector(ticker, cache_fn=_cache_fn)
     vol, avg_vol = _safe_volume(snapshot)
+    quality = _build_data_quality(snapshot, news, neg_flags, session)
 
     input_obj = TickerInput(
         ticker=ticker,
@@ -160,9 +188,17 @@ def build_ticker_input(
         is_cfd_only=False,
         catalyst_type=catalyst_type, catalyst_description=catalyst_desc,
         relative_strength=rs, sector=sector,
-        social_mentions_today=0, social_mentions_avg=1,
+        social_mentions_today=social.mentions_today,
+        social_mentions_avg=social.mentions_avg,
         has_sec_investigation=has_sec_flag(ticker),
-        has_class_action=False, insider_sells_90d=0,
+        has_class_action=False,
+        insider_sells_90d=0,
     )
+
+    if neg_flags:
+        logger.warning(
+            f"assembler: negatieve signalen voor {ticker}: "
+            + " | ".join(neg_flags[:2])
+        )
 
     return input_obj, quality

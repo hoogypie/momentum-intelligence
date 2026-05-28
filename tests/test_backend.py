@@ -257,31 +257,31 @@ class TestAssemblerLogic:
 
     def test_catalyst_none_on_empty_news(self):
         from data.assembler import _classify_catalyst
-        cat, _ = _classify_catalyst([])
+        cat, _, _flags = _classify_catalyst([])
         assert cat == CatalystType.NONE
 
     def test_catalyst_strong_on_earnings_beat(self):
         from data.assembler import _classify_catalyst
         news = [NewsItem("Company beats estimates by 24%", "Reuters", "2026-05-28", None)]
-        cat, _ = _classify_catalyst(news)
+        cat, _, _ = _classify_catalyst(news)
         assert cat == CatalystType.STRONG
 
     def test_catalyst_strong_on_government_contract(self):
         from data.assembler import _classify_catalyst
         news = [NewsItem("DoD contract awarded to company", "WSJ", "2026-05-28", None)]
-        cat, _ = _classify_catalyst(news)
+        cat, _, _ = _classify_catalyst(news)
         assert cat == CatalystType.STRONG
 
     def test_catalyst_moderate_on_upgrade(self):
         from data.assembler import _classify_catalyst
         news = [NewsItem("Analyst upgrade to Outperform", "Barrons", "2026-05-28", None)]
-        cat, _ = _classify_catalyst(news)
+        cat, _, _ = _classify_catalyst(news)
         assert cat == CatalystType.MODERATE
 
     def test_catalyst_weak_on_vague_announcement(self):
         from data.assembler import _classify_catalyst
         news = [NewsItem("Company explores strategic options", "PR", "2026-05-28", None)]
-        cat, _ = _classify_catalyst(news)
+        cat, _, _ = _classify_catalyst(news)
         assert cat == CatalystType.WEAK
 
     def test_rs_strong_positive_stock_up_market_down(self):
@@ -291,7 +291,8 @@ class TestAssemblerLogic:
 
     def test_rs_moderate_positive_stock_outperforms(self):
         from data.assembler import _classify_relative_strength
-        rs = _classify_relative_strength(stock_pct=5.0, spy_pct=1.0)
+        # diff = 2.0 → net binnen MODERATE range (>1.0 maar ≤2.5)
+        rs = _classify_relative_strength(stock_pct=3.0, spy_pct=1.0)
         assert rs == RelativeStrength.MODERATE_POSITIVE
 
     def test_rs_neutral_similar_to_market(self):

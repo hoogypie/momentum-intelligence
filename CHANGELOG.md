@@ -4,48 +4,47 @@
 
 ---
 
-## [v2.3] — 28 mei 2026 — API Polish & Developer Experience
+## [v2.4] — 28 mei 2026 — Real Signal Expansion
 
-**Context:** v2.2 had werkende endpoints maar geen OpenAPI polish, geen smoke
-test, geen gestructureerde logging en geen developer scripts. v2.3 maakt de
-backend klaar voor gebruik door een frontend developer (of door Claude in fase 3).
+**Context:** v2.3 had solide API polish maar alle intelligentie was nog
+placeholder (catalyst=NONE, social=0, sector heat handmatig). v2.4 voegt
+echte signalen toe: Finnhub nieuws, dynamische sector heat, marktssessie
+bewustzijn, verbeterde RS drempels en social architectuur.
 
-**OpenAPI Polish:**
-- Tags: health, analysis, sector, cache
-- Descriptions en summaries per endpoint
-- Response voorbeelden in schema
-- operation_id per endpoint
-- FastAPI Swagger UI + ReDoc actief
+**Nieuwe modules:**
+- data/market_session.py  — MarketSession enum, sessie detectie per tijdstip
+- data/social_client.py   — SocialData stub, klaar voor StockTwits fase 3
+- data/sector_intelligence.py — Dynamische sector heat (60% dynamic / 40% static)
 
-**Nieuwe endpoints:**
-- GET /cache/stats (was alleen intern)
-- DELETE /cache/{ticker} (handmatige invalidatie)
+**news_client.py herschreven:**
+- Echte Finnhub integratie (FINNHUB_API_KEY env var, graceful fallback)
+- NewsConfidence: HIGH/MEDIUM/LOW per artikel (bron, leeftijd, catalyst)
+- Source tier mapping (Reuters=1, PR Newswire=3)
+- Uitgebreide keyword lijst: guidance raised, record revenue, buyback, etc.
+- Negatieve signalen: SEC, class action, guidance cut, revenue miss
+- classify_catalyst_from_headlines() — sterkste catalyst wint
 
-**Structured Logging:**
-- backend/logging_config.py — setup_logging(), get_logger()
-- RequestLoggingMiddleware — elke request gelogd
-- log_cache_event(), log_score_event(), log_fallback_event()
-- Configureerbaar via LOG_LEVEL en LOG_FORMAT env vars
-- Noisy 3rd-party loggers beperkt
+**assembler.py:**
+- Gebruikt news_client.classify_catalyst_from_headlines() (uitgebreider)
+- Integreert social_client.get_social_data()
+- Dynamic sector heat via sector_intelligence.get_dynamic_sector_heat()
+- Verbeterde RS drempels (diff>2.5=STRONG, >1.0=MODERATE, <-2.0=UNDER)
+- sec_check_automated=True als FINNHUB_API_KEY aanwezig
 
-**Developer Scripts:**
-- scripts/smoke_test.py — CLI smoke test, mockbaar in tests
-- scripts/run_backend.py — cross-platform backend starter
-- Makefile — make run / test / smoke / lint / clean
+**yahoo_client.py:**
+- market_session in TickerSnapshot
+- Premarket data alleen bij sessie=PREMARKET
 
-**Developer Config:**
-- .env.example — template voor alle environment variables
-
-**Documentatie:**
-- docs/API.md — volledig endpoint overzicht, voorbeeldresponses,
-  error codes, cache behavior, confidence labels
+**Schema update:**
+- TickerSnapshot: market_session veld (optional, backward compat)
 
 **Tests:**
-- tests/test_dev_experience.py — 51 tests
-- Totaal: 286/286 ✅
+- tests/test_signals.py — 57 nieuwe tests
+- Totaal: 343/343 ✅
 
 **Geen nieuwe scoring features.**
 
+---
 ---
 ---
 ---
