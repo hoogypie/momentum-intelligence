@@ -259,3 +259,43 @@ altijd of scores gebaseerd zijn op echte of placeholder data.
 
 **Testbaarheid:** Alle backend tests gebruiken mocks (unittest.mock).
 Geen netwerk vereist voor de test-suite. Werkt in elke CI-omgeving.
+
+---
+
+## D-013 | 28 mei 2026 | SCHEMAS: Pydantic Contract Layer
+
+**Beslissing:** Vier Pydantic schemas als contract-laag tussen data en API.
+schemas/ticker_snapshot.py, scoring_response.py, sector_state.py, api_error.py.
+
+**Rationale:** v2.0 gebruikte losse dicts door de API. Bij elke refactor kon een
+veld ontbreken zonder dat tests dit merkten. Pydantic schemas geven compile-time
+validatie, automatische OpenAPI docs, en een stabiel contract.
+
+**DataConfidence:** LIVE/DELAYED/PARTIAL/MISSING — transparantie over databron-
+kwaliteit. Gebruiker weet of score gebaseerd is op complete of incomplete data.
+DELAYED is gereserveerd voor v2.2 (cache timestamp vergelijking).
+
+---
+
+## D-014 | 28 mei 2026 | RETRY: Exponential Backoff in yahoo_client
+
+**Beslissing:** Max 3 pogingen, backoff 0s/0.5s/1.5s. Rate limit → stop direct.
+
+**Rationale:** Yahoo Finance is onbetrouwbaar bij hoog verzoekvolume. Eén
+mislukte request mag de gebruiker geen 500 geven. Exponential backoff voorkomt
+dat we een overbelaste server harder treffen. Bij rate limit (429/herhaalde 403)
+is meer proberen contraproductief — direct stoppen is de juiste reactie.
+
+**Consequentie:** get_snapshot() gooit nooit een exception. Altijd TickerSnapshot.
+Fouten communiceren via het `error` veld + DataConfidence.MISSING.
+
+---
+
+## D-015 | 28 mei 2026 | CACHE: Architectuur Prep Disabled
+
+**Beslissing:** cache/market_cache.py gebouwd maar CACHE_ENABLED=False.
+
+**Rationale:** Voortijdige cache zonder gemeten rate limit probleem = over-engineering.
+De architectuur is klaar (TTL, cooldown registry, stats). Activeren in v2.2 zodra
+in productie aantoonbaar rate limiting optreedt. In-memory cache overleeft
+server restart niet — dat is acceptabel voor persoonlijk gebruik.

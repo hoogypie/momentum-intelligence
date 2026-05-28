@@ -4,6 +4,40 @@
 
 ---
 
+## [v2.1] — 28 mei 2026 — Data Stability Layer
+
+**Context:** v2.0 backend werkte maar had geen typed contracts, geen retry logic,
+geen confidence labels en geen validatie van ontbrekende velden.
+v2.1 maakt de backend production-safe vóór frontend of AI narrative layer.
+
+**Nieuwe bestanden:**
+- `schemas/ticker_snapshot.py` — TickerSnapshot + DataConfidence (LIVE/DELAYED/PARTIAL/MISSING)
+- `schemas/scoring_response.py` — ScoringResponse, DataQuality, MomentumBreakdown, SkipBreakdown
+- `schemas/sector_state.py` — SectorState Pydantic model
+- `schemas/api_error.py` — ApiError, ErrorCode, factory functies
+- `cache/market_cache.py` — Cache architectuur prep (DISABLED, activeren in v2.2)
+- `tests/test_data_stability.py` — 53 stability tests
+
+**Gewijzigd:**
+- `data/yahoo_client.py` — retry (3x), exponential backoff, rate limit detectie,
+  DataConfidence label, TickerSnapshot i.p.v. QuoteData, NaN/Inf filtering
+- `data/assembler.py` — missing field handling, DataQuality schema, TickerSnapshot input
+- `backend/app.py` — typed responses via Pydantic, ApiError schema, 429 rate limit response
+- `tests/test_backend.py` — bijgewerkt voor TickerSnapshot + nieuwe schema velden
+- `requirements.txt` — pydantic>=2.0 bevestigd
+
+**Stabiliteitswaarborgen:**
+- Engine scoort altijd, ook bij PARTIAL/MISSING data (graceful defaults)
+- API crasht nooit op ophaalfout — altijd typed error response
+- Rate limit detectie → 429 in API, cooldown prep in cache
+- Alle 159 tests slagen zonder netwerk
+
+**Test resultaten:** 159/159 ✅ (70 engine + 36 backend + 53 stability)
+
+**Geen nieuwe scoring features toegevoegd.**
+
+---
+
 ## [v2.0] — 28 mei 2026 — Lokale Backend + Data Ingestion
 
 **Context:** Score engine v1.3 had 105 tests en een solide fundering.

@@ -24,8 +24,8 @@ Layer 3 — AI Narrative  Claude explains the score. Never calculates it.
 
 | Phase | Description | Status |
 |---|---|---|
-| 1 | Score Engine | ✅ Complete — v1.3, 105/105 tests passing |
-| 2 | Python Backend | ✅ Complete — v2.0, FastAPI + Yahoo Finance |
+| 1 | Score Engine | ✅ Complete — v1.3, 159/159 tests passing |
+| 2 | Python Backend | ✅ Complete — v2.1, Data Stability Layer |
 | 3 | Dashboard | 🔲 Later |
 | 4 | Deployment | 🔲 Later |
 | 5 | Data Expansion | 🔲 Optional |
@@ -87,36 +87,29 @@ pytest tests/ -x --tb=short
 momentum-intelligence/
 ├── README.md
 ├── MASTER_CONTEXT.md
-├── ROADMAP.md
-├── DECISIONS.md
-├── CHANGELOG.md
-├── requirements.txt
-├── conftest.py                 pytest path config
-├── .gitignore
+├── ROADMAP.md / DECISIONS.md / CHANGELOG.md
+├── requirements.txt  /  conftest.py  /  .gitignore
 ├── backend/
-│   ├── __init__.py
-│   └── app.py                  FastAPI — /health + /analyze/{ticker}
+│   └── app.py                  FastAPI — typed Pydantic responses
+├── cache/
+│   └── market_cache.py         Cache prep (DISABLED — v2.2)
 ├── data/
-│   ├── __init__.py
-│   ├── yahoo_client.py         Yahoo Finance: prijs, volume, market cap
-│   ├── news_client.py          Finnhub placeholder (fase 2.1)
-│   └── assembler.py            Bouwt TickerInput van alle bronnen
-├── docs/
-│   ├── ARCHITECTURE.md
-│   ├── ANTI_GOALS.md
-│   ├── KNOWN_FAILURE_MODES.md
-│   ├── MOMENTUM_FRAMEWORK.md
-│   └── SCORE_ENGINE.md
+│   ├── yahoo_client.py         Retry + backoff + DataConfidence
+│   ├── news_client.py          Finnhub placeholder
+│   └── assembler.py            TickerInput builder + missing field handling
+├── schemas/
+│   ├── ticker_snapshot.py      TickerSnapshot + DataConfidence
+│   ├── scoring_response.py     ScoringResponse + DataQuality
+│   ├── sector_state.py         SectorState
+│   └── api_error.py            ApiError + ErrorCode
 ├── scoring/
-│   ├── __init__.py
-│   ├── scoring_v1_1.py         (archief)
-│   └── scoring_v1_2.py         Huidige engine
+│   └── scoring_v1_2.py         Score engine (pure functions, no AI)
 ├── config/
-│   └── sectors.json
+│   └── sectors.json            Sector heat — update weekly
 └── tests/
-    ├── __init__.py
-    ├── test_scoring.py         70 engine tests
-    └── test_backend.py         35 backend + assembler tests
+    ├── test_scoring.py          70 engine tests
+    ├── test_backend.py          36 API tests (mocked)
+    └── test_data_stability.py   53 stability tests
 ```
 
 ---

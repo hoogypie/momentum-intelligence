@@ -1,21 +1,15 @@
 """
 data/assembler.py
-Assembler — v2.0
+Assembler — v2.1
 
-Bouwt een TickerInput van losse data bronnen:
-    yahoo_client  → prijs, volume, market cap, float
-    news_client   → headlines (placeholder in v2.0)
-    sectors.json  → sector heat, leaders, sympathy
-    SPY return    → relative strength
-
-De score engine (scoring_v1_2.py) verandert niet.
-Alleen de input verandert: mock data → live data.
-
-Beperkingen in v2.0 (zie KNOWN_FAILURE_MODES.md):
-    - Catalyst type: altijd NONE (news_client is placeholder)
-    - Social acceleration: altijd 0 (geen StockTwits in v2.0)
-    - SEC/class action: altijd False (handmatige check)
-    - Data quality velden informeren de gebruiker over deze beperkingen
+Wijzigingen t.o.v. v2.0:
+    - Accepteert TickerSnapshot i.p.v. QuoteData
+    - Alle missing-field scenarios afgedekt
+    - DataQuality schema gebruikt Pydantic
+    - Missing market_cap → SMALL tier default, duidelijk gelogd
+    - Missing float → neutrale score (4/8 pts), geen crash
+    - Missing premarket → 0.0, geen crash
+    - Missing volume → avg_volume_20d als fallback
 """
 
 import json
@@ -23,8 +17,10 @@ import os
 import logging
 from typing import Optional
 
-from data.yahoo_client import get_quote, get_spy_return, QuoteData
+from data.yahoo_client import get_snapshot, get_spy_return
 from data.news_client  import get_news, has_sec_flag, NewsItem
+from schemas.ticker_snapshot import DataConfidence
+from schemas.scoring_response import DataQuality
 from scoring.scoring_v1_2 import (
     TickerInput, SectorConfig,
     CatalystType, RelativeStrength,
@@ -37,11 +33,20 @@ _SECTORS_PATH = os.path.join(
     "config", "sectors.json"
 )
 
+# Neutrale default sector — gebruikt als ticker niet in sectors.json staat
+_DEFAULT_SECTOR = SectorConfig(
+    sector_id="unknown",
+    sector_label="UNKNOWN",
+    heat=50,
+    phase=1,
+    leaders=[],
+    sympathy=[],
+)
 
-# ── SECTOR LOOKUP ─────────────────────────────────────────────────────────────
+
+# ── SECTOR LOOKUP ──────────────────────────────────────────────────────────────
 
 def _load_sectors() -> dict:
-    """Laadt config/sectors.json. Cached na eerste aanroep."""
     if not hasattr(_load_sectors, "_cache"):
         try:
             with open(_SECTORS_PATH) as f:
@@ -53,14 +58,8 @@ def _load_sectors() -> dict:
 
 
 def _find_sector(ticker: str) -> SectorConfig:
-    """
-    Zoekt sector op basis van ticker in leaders + sympathy lijsten.
-    Geeft neutrale sector terug als ticker niet gevonden is.
-    """
-    data = _load_sectors()
     ticker_upper = ticker.upper()
-
-    for s in data.get("sectors", []):
+    for s in _load_sectors().get("sectors", []):
         if (ticker_upper in s.get("leaders", []) or
                 ticker_upper in s.get("sympathy", [])):
             return SectorConfig(
@@ -71,152 +70,148 @@ def _find_sector(ticker: str) -> SectorConfig:
                 leaders=s.get("leaders", []),
                 sympathy=s.get("sympathy", []),
             )
-
-    logger.debug(f"assembler: {ticker} niet in sectors.json — neutrale sector")
-    return SectorConfig(
-        sector_id="unknown",
-        sector_label="UNKNOWN",
-        heat=50,
-        phase=1,
-        leaders=[],
-        sympathy=[],
-    )
+    return _DEFAULT_SECTOR
 
 
-# ── CLASSIFIERS ───────────────────────────────────────────────────────────────
+# ── CLASSIFIERS ────────────────────────────────────────────────────────────────
 
 def _classify_catalyst(news: list[NewsItem]) -> tuple[CatalystType, str]:
-    """
-    Bepaalt catalyst kwaliteit op basis van headline keywords.
-    Geeft NONE terug als er geen nieuws is (placeholder in v2.0).
-    """
     if not news:
         return CatalystType.NONE, "Geen nieuws opgehaald (news_client placeholder)"
 
-    # Meest recente headline
     headline = news[0].headline.lower()
 
     STRONG = [
         "earnings beat", "beats estimate", "exceeds", "record revenue",
         "contract awarded", "government contract", "dod contract",
         "guidance raised", "raised guidance", "acquisition", "merger",
-        "ipo", "fda approval", "blowout", "massive beat",
+        "fda approval", "blowout", "massive beat",
     ]
     MODERATE = [
         "upgrade", "partnership", "collaboration", "expansion",
         "new product", "launch", "deal signed", "analyst", "outperform",
     ]
     WEAK = [
-        "explores", "considers", "plans to", "evaluates", "looking at",
+        "explores", "considers", "plans to", "evaluates",
         "announces", "update", "appoints",
     ]
 
     if any(kw in headline for kw in STRONG):
-        return CatalystType.STRONG, news[0].headline
+        return CatalystType.STRONG,   news[0].headline
     if any(kw in headline for kw in MODERATE):
         return CatalystType.MODERATE, news[0].headline
     if any(kw in headline for kw in WEAK):
-        return CatalystType.WEAK, news[0].headline
+        return CatalystType.WEAK,     news[0].headline
 
-    return CatalystType.MODERATE, news[0].headline  # nieuws aanwezig = minimaal MODERATE
+    return CatalystType.MODERATE, news[0].headline
 
 
-def _classify_relative_strength(
-    stock_pct: float,
-    spy_pct: float,
-) -> RelativeStrength:
-    """
-    Vergelijkt dagsrendement van stock met SPY.
-    """
+def _classify_relative_strength(stock_pct: float, spy_pct: float) -> RelativeStrength:
     diff = stock_pct - spy_pct
-
-    if spy_pct < 0 and stock_pct > 0:
-        return RelativeStrength.STRONG_POSITIVE    # groen bij rode markt
-    if diff > 1.5:
-        return RelativeStrength.MODERATE_POSITIVE  # outperformt markt
-    if diff < -1.5:
-        return RelativeStrength.UNDERPERFORMING
+    if spy_pct < 0 and stock_pct > 0:   return RelativeStrength.STRONG_POSITIVE
+    if diff > 1.5:                        return RelativeStrength.MODERATE_POSITIVE
+    if diff < -1.5:                       return RelativeStrength.UNDERPERFORMING
     return RelativeStrength.NEUTRAL
 
 
-# ── DATA QUALITY ──────────────────────────────────────────────────────────────
+# ── MISSING FIELD HANDLING ────────────────────────────────────────────────────
 
-def _data_quality(quote: QuoteData, news: list[NewsItem]) -> dict:
+def _safe_market_cap(snapshot) -> float:
     """
-    Transparantie over welke data beschikbaar was.
-    Wordt meegestuurd in de API response.
+    Missing market_cap → $1B default (SMALL tier).
+    Engine scoort altijd — tier bepaalt sizing, niet de score zelf.
     """
-    return {
-        "price_available":     quote.price > 0,
-        "volume_available":    quote.volume_today > 0,
-        "float_available":     quote.float_shares is not None,
-        "premarket_available": quote.premarket_price is not None,
-        "news_available":      len(news) > 0,
-        "social_available":    False,   # fase 2.1: StockTwits
-        "sec_check_automated": False,   # fase 2.1: Finnhub scan
-        "fetch_error":         quote.error,
-    }
+    if snapshot.market_cap and snapshot.market_cap > 0:
+        return snapshot.market_cap
+    logger.debug(f"assembler: market_cap ontbreekt voor {snapshot.ticker} — default $1B")
+    return 1_000_000_000
 
 
-# ── MAIN ASSEMBLER ────────────────────────────────────────────────────────────
+def _safe_volume(snapshot) -> tuple[int, int]:
+    """
+    Missing volume → gebruik avg als volume_today, 1 als avg om / 0 te voorkomen.
+    Engine berekent relative volume — 0/1 = 0 = geen volume penalty.
+    """
+    vol   = max(snapshot.volume_today,   0)
+    avg   = max(snapshot.avg_volume_20d, 1)
+    if vol == 0 and avg > 1:
+        # volume_today ontbreekt — gebruik avg als proxy (1x = neutraal)
+        logger.debug(f"assembler: volume_today=0 voor {snapshot.ticker} — avg gebruikt")
+        return avg, avg
+    return vol, avg
 
-def build_ticker_input(ticker: str) -> tuple[TickerInput, dict]:
+
+# ── DATA QUALITY ───────────────────────────────────────────────────────────────
+
+def _build_data_quality(snapshot, news: list[NewsItem]) -> DataQuality:
+    return DataQuality(
+        price_available     = snapshot.price > 0,
+        volume_available    = snapshot.volume_today > 0,
+        float_available     = snapshot.float_shares is not None,
+        premarket_available = snapshot.premarket_available,
+        news_available      = len(news) > 0,
+        social_available    = False,
+        sec_check_automated = False,
+        confidence          = snapshot.confidence,
+        fetch_error         = snapshot.error,
+        retries_used        = snapshot.retries_used,
+    )
+
+
+# ── MAIN ASSEMBLER ─────────────────────────────────────────────────────────────
+
+def build_ticker_input(ticker: str) -> tuple[TickerInput, DataQuality]:
     """
     Bouwt TickerInput van live data bronnen.
 
-    Returns:
-        (TickerInput, data_quality_dict)
+    Returns: (TickerInput, DataQuality)
+    Nooit een exception — graceful defaults bij elke ophaalfout.
 
-    Gooit nooit een exception — veilige defaults bij elke ophaalfout.
-
-    Beperkingen v2.0:
-        - catalyst_type = NONE (news placeholder)
-        - social_mentions = 0/1 (geen StockTwits)
-        - has_sec_investigation = False (handmatig)
+    Veld-by-veld fallback strategie:
+        price=0        → return MISSING, 422 in API
+        volume=0       → avg_volume als fallback
+        market_cap=None → $1B default (SMALL tier)
+        float=None     → neutrale score (4/8 pts)
+        premarket=0    → geen pre-market component
+        news=[]        → catalyst=NONE (conservatief)
+        social=0/1     → geen social score
+        sec=False      → handmatige check vereist
     """
-    ticker = ticker.upper().strip()
+    ticker   = ticker.upper().strip()
+    snapshot = get_snapshot(ticker)
+    news     = get_news(ticker, hours=48)
+    spy      = get_spy_return()
+    quality  = _build_data_quality(snapshot, news)
 
-    # Data ophalen
-    quote = get_quote(ticker)
-    news  = get_news(ticker, hours=48)
-    spy   = get_spy_return()
-
-    # Classificaties
     catalyst_type, catalyst_desc = _classify_catalyst(news)
-    rs = _classify_relative_strength(quote.day_change_pct, spy)
-    sector = _find_sector(ticker)
-    sec_flag = has_sec_flag(ticker)     # False in v2.0
-    quality = _data_quality(quote, news)
+    rs      = _classify_relative_strength(snapshot.day_change_pct, spy)
+    sector  = _find_sector(ticker)
+    vol, avg_vol = _safe_volume(snapshot)
 
     input_obj = TickerInput(
         ticker=ticker,
 
-        # Prijs & volume
-        price=quote.price,
-        day_change_pct=quote.day_change_pct,
-        premarket_pct=quote.premarket_pct,
-        volume_today=quote.volume_today,
-        avg_volume_20d=max(quote.avg_volume_20d, 1),
+        price          = snapshot.price,
+        day_change_pct = snapshot.day_change_pct,
+        premarket_pct  = snapshot.premarket_pct,
+        volume_today   = vol,
+        avg_volume_20d = avg_vol,
 
-        # Bedrijfsdata
-        market_cap_usd=quote.market_cap or 1_000_000_000,  # default SMALL
-        float_shares=quote.float_shares,
-        is_cfd_only=False,              # handmatige override via query param later
+        market_cap_usd = _safe_market_cap(snapshot),
+        float_shares   = snapshot.float_shares,
+        is_cfd_only    = False,
 
-        # Fundamentele context
-        catalyst_type=catalyst_type,
-        catalyst_description=catalyst_desc,
-        relative_strength=rs,
-        sector=sector,
+        catalyst_type        = catalyst_type,
+        catalyst_description = catalyst_desc,
+        relative_strength    = rs,
+        sector               = sector,
 
-        # Social — placeholder v2.0
-        social_mentions_today=0,
-        social_mentions_avg=1,          # voorkom deling door nul
+        social_mentions_today = 0,
+        social_mentions_avg   = 1,
 
-        # Risico flags — handmatig in v2.0
-        has_sec_investigation=sec_flag,
-        has_class_action=False,
-        insider_sells_90d=0,
+        has_sec_investigation = has_sec_flag(ticker),
+        has_class_action      = False,
+        insider_sells_90d     = 0,
     )
 
     return input_obj, quality

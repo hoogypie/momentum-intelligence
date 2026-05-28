@@ -1,48 +1,52 @@
 """
 backend/app.py
-Momentum Intelligence API — v2.0
+Momentum Intelligence API — v2.1
+
+Wijzigingen t.o.v. v2.0:
+    - Typed responses via Pydantic schemas
+    - ApiError schema voor alle foutresponses
+    - Rate limit detectie → 429 response
+    - ScoringResponse schema validates output
+    - HealthResponse schema
 
 Endpoints:
-    GET /health             Liveness check + versie-info
-    GET /analyze/{ticker}   Volledige momentum scoring voor één ticker
-
-Geen AI narrative, geen frontend, geen auth.
-Output: ScoringResult als JSON + data quality metadata.
+    GET /health             Liveness check
+    GET /analyze/{ticker}   Momentum scoring
 
 Starten:
     uvicorn backend.app:app --reload --port 8000
-
-Aanroepen:
-    curl http://localhost:8000/health
-    curl http://localhost:8000/analyze/NVDA
 """
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
-import dataclasses
-import enum
-import logging
 from datetime import datetime, timezone
+import dataclasses, enum, logging
 
 from data.assembler import build_ticker_input
 from scoring.scoring_v1_2 import score_ticker
+from schemas.api_error import (
+    invalid_ticker, ticker_not_found, rate_limited as rate_limited_err,
+    fetch_error, internal_error, ErrorCode
+)
+from schemas.scoring_response import (
+    ScoringResponse, HealthResponse, DataQuality,
+    MomentumBreakdown, SkipBreakdown
+)
+from schemas.ticker_snapshot import DataConfidence
 
 logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="Momentum Intelligence API",
     description="Score engine v1.2 — geen AI, pure formules",
-    version="2.0.0",
+    version="2.1.0",
 )
 
 
 # ── SERIALISATIE ──────────────────────────────────────────────────────────────
 
-def _serialize(obj) -> dict | list | str | float | int | bool | None:
-    """
-    Recursieve serialisatie van dataclasses + Enums naar JSON-compatibele types.
-    FastAPI kan dataclasses niet direct serialiseren als ze geneste Enums bevatten.
-    """
+def _serialize(obj):
+    """Recursieve conversie van dataclasses + Enums naar JSON-compatibele types."""
     if dataclasses.is_dataclass(obj) and not isinstance(obj, type):
         return {k: _serialize(v) for k, v in dataclasses.asdict(obj).items()}
     if isinstance(obj, enum.Enum):
@@ -54,118 +58,126 @@ def _serialize(obj) -> dict | list | str | float | int | bool | None:
     return obj
 
 
-# ── HEALTH ENDPOINT ───────────────────────────────────────────────────────────
+def _build_response(result, quality: DataQuality) -> ScoringResponse:
+    """Bouwt getypeerde ScoringResponse van ScoringResult + DataQuality."""
+    md = result.momentum_detail
+    sd = result.skip_detail
 
-@app.get("/health")
-def health() -> dict:
-    """
-    Liveness check.
+    return ScoringResponse(
+        ticker          = result.ticker,
+        decision        = result.decision.value,
+        momentum_score  = result.momentum_score,
+        skip_score      = result.skip_score,
+        phase           = result.phase.value,
+        phase_description = result.phase_description,
+        market_cap_tier = result.market_cap_tier.value,
+        sizing_eur      = result.sizing_eur,
+        summary         = result.summary,
+        analyzed_at     = datetime.now(timezone.utc),
+        momentum_detail = MomentumBreakdown(
+            total                   = md.total,
+            volume_anomaly          = md.volume_anomaly,
+            sector_heat_score       = md.sector_heat_score,
+            catalyst_quality        = md.catalyst_quality,
+            premarket_strength      = md.premarket_strength,
+            relative_strength_score = md.relative_strength_score,
+            social_acceleration     = md.social_acceleration,
+            float_score             = md.float_score,
+            social_was_capped       = md.social_was_capped,
+            social_cap_reason       = md.social_cap_reason or "",
+            breakdown               = md.breakdown,
+        ),
+        skip_detail = SkipBreakdown(
+            total            = sd.total,
+            is_hard_blocked  = sd.is_hard_blocked,
+            reasons          = sd.reasons,
+            blocking_reasons = sd.blocking_reasons,
+        ),
+        data_quality = quality,
+    )
 
-    Response:
-        status          "ok"
-        version         API versie
-        engine          Score engine versie
-        timestamp       UTC ISO timestamp
-        data_sources    Actieve data bronnen
-        limitations     Bekende beperkingen in deze versie
-    """
-    return {
-        "status": "ok",
-        "version": "2.0.0",
-        "engine": "scoring_v1_2",
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "data_sources": {
-            "price_volume": "yahoo_finance (unofficial)",
+
+# ── HEALTH ────────────────────────────────────────────────────────────────────
+
+@app.get("/health", response_model=HealthResponse)
+def health() -> HealthResponse:
+    return HealthResponse(
+        status    = "ok",
+        version   = "2.1.0",
+        engine    = "scoring_v1_2",
+        timestamp = datetime.now(timezone.utc),
+        data_sources = {
+            "price_volume": "yahoo_finance (unofficial, retry+backoff)",
             "news":         "placeholder (fase 2.1: Finnhub)",
-            "social":       "placeholder (fase 2.1: StockTwits)",
+            "social":       "placeholder (fase 2.2: StockTwits)",
+            "cache":        "disabled (fase 2.2)",
         },
-        "limitations": [
+        limitations = [
             "catalyst_type altijd NONE (news_client placeholder)",
             "social_acceleration altijd 0 (geen StockTwits key)",
             "has_sec_investigation altijd False (handmatige check)",
             "float_shares via shares_outstanding (benadering)",
+            "DataConfidence.DELAYED niet actief zonder cache",
         ],
-    }
+    )
 
 
-# ── ANALYZE ENDPOINT ──────────────────────────────────────────────────────────
+# ── ANALYZE ───────────────────────────────────────────────────────────────────
 
 @app.get("/analyze/{ticker}")
 def analyze(ticker: str) -> JSONResponse:
     """
     Volledige momentum scoring voor één ticker.
 
-    Path parameter:
-        ticker      US equity ticker symbol (bijv. NVDA, AAPL, UMAC)
-
-    Response:
-        ScoringResult velden (zie scoring_v1_2.py)
-        + data_quality: transparantie over beschikbare data
-
-    Errors:
-        400     Lege ticker
-        422     Ticker niet gevonden op Yahoo Finance
-        500     Onverwachte fout
+    Error responses (ApiError schema):
+        400  Ongeldige ticker syntax
+        422  Ticker niet gevonden of geen data
+        429  Yahoo Finance rate limit bereikt
+        500  Interne serverfout
     """
     ticker = ticker.upper().strip()
 
-    if not ticker or not ticker.isalpha():
-        raise HTTPException(
-            status_code=400,
-            detail=f"Ongeldige ticker: '{ticker}'. Gebruik alleen letters (bijv. NVDA)."
-        )
+    # Validatie
+    if not ticker or not ticker.replace("-", "").isalpha():
+        err = invalid_ticker(ticker)
+        raise HTTPException(status_code=400, detail=err.model_dump())
 
-    logger.info(f"analyze: ophalen data voor {ticker}")
+    logger.info(f"analyze: {ticker}")
 
     try:
         ticker_input, quality = build_ticker_input(ticker)
 
-        # Controleer of data succesvol opgehaald werd
-        if quality.get("fetch_error"):
-            raise HTTPException(
-                status_code=422,
-                detail={
-                    "error":   "Data ophalen mislukt",
-                    "ticker":  ticker,
-                    "message": quality["fetch_error"],
-                    "hint":    "Controleer of de ticker correct is en beschikbaar op Yahoo Finance.",
-                }
-            )
+        # Rate limit gedetecteerd
+        if (quality.fetch_error and
+                any(kw in quality.fetch_error.lower()
+                    for kw in ["429", "rate limit", "too many"])):
+            err = rate_limited_err(ticker)
+            raise HTTPException(status_code=429, detail=err.model_dump())
 
+        # Ophaalfout
+        if quality.fetch_error:
+            err = fetch_error(ticker, quality.fetch_error)
+            raise HTTPException(status_code=422, detail=err.model_dump())
+
+        # Geen prijs data
         if ticker_input.price == 0.0:
-            raise HTTPException(
-                status_code=422,
-                detail={
-                    "error":   "Ticker niet gevonden of geen koersdata",
-                    "ticker":  ticker,
-                    "hint":    "Controleer spelling. Sommige niet-US tickers zijn niet beschikbaar.",
-                }
-            )
+            err = ticker_not_found(ticker)
+            raise HTTPException(status_code=422, detail=err.model_dump())
 
-        # Score berekenen
-        result = score_ticker(ticker_input)
-
-        # Response samenstellen
-        response_data = _serialize(result)
-        response_data["data_quality"] = quality
-        response_data["analyzed_at"]  = datetime.now(timezone.utc).isoformat()
+        result   = score_ticker(ticker_input)
+        response = _build_response(result, quality)
 
         logger.info(
             f"analyze: {ticker} → {result.decision.value} "
-            f"(momentum={result.momentum_score:.1f}, skip={result.skip_score})"
+            f"(momentum={result.momentum_score:.1f}, skip={result.skip_score}, "
+            f"confidence={quality.confidence.value})"
         )
 
-        return JSONResponse(content=response_data)
+        return JSONResponse(content=response.model_dump(mode="json"))
 
     except HTTPException:
         raise
     except Exception as exc:
-        logger.error(f"analyze: onverwachte fout bij {ticker}: {exc}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail={
-                "error":   "Interne serverfout",
-                "ticker":  ticker,
-                "message": str(exc),
-            }
-        )
+        logger.error(f"analyze: fout bij {ticker}: {exc}", exc_info=True)
+        err = internal_error(ticker, str(exc))
+        raise HTTPException(status_code=500, detail=err.model_dump())

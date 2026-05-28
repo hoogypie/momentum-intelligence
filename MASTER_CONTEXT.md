@@ -1,88 +1,77 @@
 # MASTER CONTEXT — MOMENTUM INTELLIGENCE
-> Source of truth voor elke Claude én ChatGPT sessie.
-> Begin elke sessie: "Lees MASTER_CONTEXT.md en DECISIONS.md. We zijn op fase [N]."
-> Laatste update: 28 mei 2026 | v1.2 | Igor × Claude
+> Source of truth. Begin elke sessie: "Lees MASTER_CONTEXT.md en DECISIONS.md. We zijn op fase [N]."
+> Laatste update: 28 mei 2026 | v2.1 | Igor × Claude
 
 ---
 
 ## 1. PROJECT
-
-**Wat:** Persoonlijke momentum intelligence tool voor retail belegger.
-**Doel:** "Tomorrow's movers" vinden vóór retail instap.
-**Scope:** Persoonlijk gebruik, niet commercieel.
-**Principe:** Data berekent score. AI legt uit. Nooit andersom.
+Persoonlijke momentum intelligence tool. Doel: tomorrow's movers vinden vóór retail.
+Principe: Data berekent score. AI legt uit. Nooit andersom.
 
 ## 2. TEAM
-
 | Rol | Agent | Verantwoordelijkheid |
 |---|---|---|
 | Product Owner | Igor | Richting, priorities, definitief oordeel |
-| Reviewer | ChatGPT | Risk, edge-analyse, "institutioneel of hype?" |
+| Reviewer | ChatGPT | Risk, edge-analyse, hype vs. institutioneel |
 | Builder | Claude | Code, architectuur, tests, documentatie |
 | Arbiter | Igor | Altijd de laatste schakel |
 
-**Workflow:** Data → Claude bouwt → Score Engine → ChatGPT review → Igor beslist
-**GitHub:** Gedeeld geheugen. Beide AI's lezen MASTER_CONTEXT.md als source of truth.
-
-## 3. DRIE STRATEGIEËN
-
-| Strategie | Max allocatie |
-|---|---|
-| Core Portfolio (BtB earnings) | 80-85% |
-| Earnings Plays (PB-score ≥4) | 10-15% |
-| **Momentum Plays (dit project)** | **5-10%** |
-
-## 4. SCORE ENGINE v1.2 — SAMENVATTING
-
-### Momentum Score (0-100)
-| Component | Max | Noot |
-|---|---|---|
-| Volume Anomaly | 22 | rv=today/avg_20d |
-| Sector Heat | 18 | uit config/sectors.json |
-| Catalyst Quality | 20 | STRONG=20, MOD=12, WEAK=4, NONE=0 |
-| Premarket Strength | 14 | sweet spot 8-20% |
-| Relative Strength | 10 | groen bij rode markt=max |
-| Social Acceleration | 8 | quality cap actief |
-| Float Score | 8 | nieuw v1.2 |
-
-### Social Quality Cap (v1.2)
-catalyst=NONE→max 2pts | WEAK→4 | MODERATE→6 | STRONG→8
-
-### Skip Score (altijd vóór Momentum)
-SEC/Class action/CFD → +100 BLOCKED | dag>40%→+40 | pm>40%→+40 |
-volume<avg→+25 | geen catalyst→+20 | >10 insider sells→+15
-Skip≥100=BLOCKED | Skip≥50=SKIP | catalyst=NONE+momentum<50=SKIP
-
-### Nieuw v1.2
-- **Float Score**: <5M=8pts, <15M=6.5, <50M=4.5, <200M=2, ≥200M=0, None=4
-- **Market Cap Tier**: MICRO<$300M=max€250, SMALL<$2B=max€400, MID/LARGE=max€500
-- **Phase**: ACCUMULATION/BREAKOUT/EXPANSION/FRENZY/EXHAUSTION/NEUTRAL
-- **SectorConfig dataclass**: sector data als expliciete input
-
-### Tests v1.2: 11/11 ✅
-Regressie 1-8 intact. Kalibratie noot: QBTS BUY_SMALL (was BUY_MODERATE v1.1, score 59.4 vs 60.4 — conservatiever, niet fout).
-
-## 5. TECH STACK
+## 3. ARCHITECTUUR (v2.1)
 ```
-Score Engine:  scoring/scoring_v1_2.py (Python, geen AI)
-Config:        config/sectors.json (handmatig, wekelijks)
-Backend:       Python FastAPI (fase 2)
-Data:          Yahoo Finance + Finnhub + StockTwits (fase 2)
-AI Narrative:  Claude API — uitleg van scores, niet berekening (fase 3)
-Frontend:      React dashboard (fase 3)
+Yahoo Finance → TickerSnapshot (retry+confidence) → Assembler → TickerInput
+                                                                      ↓
+                                                              Score Engine v1.2
+                                                                      ↓
+                                                            ScoringResponse (Pydantic)
+                                                                      ↓
+                                                          FastAPI GET /analyze/{ticker}
 ```
 
-## 6. HUIDIGE FASE
-**Fase 1 COMPLEET ✅** — scoring_v1_2.py, 11/11 tests
-**Fase 2 NEXT 🔲** — FastAPI backend + Yahoo Finance + Finnhub
-Zie ROADMAP.md voor volledige fase-details.
-Zie DECISIONS.md voor architectuurkeuzes (D-001 t/m D-010).
-Zie docs/KNOWN_FAILURE_MODES.md voor bekende beperkingen.
+## 4. SCORE ENGINE v1.2
+Momentum Score (100 pts): Volume(22) + Heat(18) + Catalyst(20) + Premarket(14) + RS(10) + Social(8, capped) + Float(8)
+Skip Score: SEC/CFD/ClassAction=+100 BLOCKED | dag>40%=+40 | pm>40%=+40 | vol<avg=+25 | geen cat=+20
+Combinatieregel: catalyst=NONE + momentum<50 → SKIP
+Social cap: NONE=2 | WEAK=4 | MODERATE=6 | STRONG=8
 
-## 7. KERNREGELS
+## 5. DATA STABILITY (v2.1)
+**Schemas:** TickerSnapshot, ScoringResponse, SectorState, ApiError (Pydantic)
+**DataConfidence:** LIVE | DELAYED (v2.2) | PARTIAL | MISSING
+**Retry:** 3x, backoff 0s/0.5s/1.5s, rate limit → stop direct
+**Missing fields:** market_cap=None→$1B default | float=None→4pts neutraal | volume=0→avg fallback
+**Cache:** architectuur klaar in cache/market_cache.py, DISABLED (v2.2)
+
+## 6. TECH STACK
+```
+Score Engine:  scoring/scoring_v1_2.py
+Schemas:       schemas/ (Pydantic v2)
+Backend:       backend/app.py (FastAPI)
+Data:          data/yahoo_client.py (yfinance + retry)
+               data/news_client.py (placeholder → Finnhub v2.2)
+               data/assembler.py (TickerInput builder)
+Cache:         cache/market_cache.py (DISABLED)
+Config:        config/sectors.json (wekelijks updaten)
+```
+
+## 7. TESTS
+```
+tests/test_scoring.py       70  Engine unit + regressie
+tests/test_backend.py       36  API endpoints (gemockt)
+tests/test_data_stability.py 53  Schemas, retry, missing data, cache
+Total:                      159  ✅ zonder netwerk
+```
+
+## 8. HUIDIGE STATUS
+Fase 1 ✅ Score engine v1.3 (70 tests)
+Fase 2 ✅ Backend v2.1 (159 tests totaal)
+Fase 3 🔲 Dashboard (next)
+Fase 4 🔲 Deployment
+
+## 9. KERNREGELS
 1. Skip Score gaat altijd vóór Momentum Score
 2. Social kan NOOIT alleen tot BUY leiden
-3. Sector config = JSON, nooit hardcoded
-4. API keys nooit in frontend of git
-5. Geen features toevoegen tijdens bug-fix sessie
-6. Elke wijziging eerst in CHANGELOG + DECISIONS vastleggen
+3. Data berekent score, AI legt uit — nooit andersom
+4. get_snapshot() gooit nooit een exception — altijd TickerSnapshot
+5. Elk veld heeft een graceful fallback — engine scoort altijd
+6. API keys nooit in git — .env in .gitignore
+7. Elke wijziging: CHANGELOG + DECISIONS bijwerken
+8. Geen features tijdens bug-fix/stability sessies
