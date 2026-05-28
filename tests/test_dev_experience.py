@@ -91,7 +91,7 @@ class TestOpenAPISchema:
 
     def test_openapi_version_matches_app(self):
         schema = client.get("/openapi.json").json()
-        assert schema["info"]["version"] == "2.3.0"
+        assert schema["info"]["version"] == "2.5.0"
 
     def test_docs_endpoint_accessible(self):
         r = client.get("/docs")

@@ -124,3 +124,66 @@ class HealthResponse(BaseModel):
     data_sources: dict[str, str]
     limitations:  list[str]
     cache_stats:  Optional[dict] = None  # v2.2
+
+
+# ── HISTORY SCHEMAS (v2.5) ────────────────────────────────────────────────────
+
+class EffectiveSignal(BaseModel):
+    """Snapshot met signal decay toegepast."""
+    version_id:          str
+    ticker:              str
+    timestamp:           str
+    decision:            str
+    momentum_score:      float
+    phase:               str
+    effective_decision:  str
+    effective_score:     float
+    signal_age:          str
+    age_hours:           float
+    decay_applied:       float
+    is_actionable:       bool
+
+
+class SignalEvolutionResponse(BaseModel):
+    """Response voor GET /history/{ticker}"""
+    ticker:               str
+    hours_covered:        float
+    snapshot_count:       int
+    momentum_trend:       str
+    decision_distribution: dict
+    phase_transitions:    list[dict]
+    catalyst_timeline:    list[dict]
+    effective_signals:    list[dict]
+    summary:              str
+    analyzed_at:          datetime = Field(
+                              default_factory=lambda: datetime.now(timezone.utc)
+                          )
+
+
+class MomentumWindowResponse(BaseModel):
+    """Response voor GET /history/{ticker}/window"""
+    ticker:              str
+    window_open:         bool
+    reason:              str
+    signal_age:          str
+    age_hours:           float
+    effective_decision:  str
+    effective_score:     float
+    momentum_trend:      str
+    decay:               dict
+    analyzed_at:         datetime = Field(
+                             default_factory=lambda: datetime.now(timezone.utc)
+                         )
+
+
+class SectorEvolutionResponse(BaseModel):
+    """Response voor GET /sector/{sector}/trend"""
+    sector_id:       str
+    snapshot_count:  int
+    heat_trend:      list[int]
+    momentum_trend:  list[float]
+    is_heating_up:   bool
+    summary:         str
+    analyzed_at:     datetime = Field(
+                         default_factory=lambda: datetime.now(timezone.utc)
+                     )

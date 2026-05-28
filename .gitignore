@@ -31,3 +31,4 @@ Thumbs.db
 data/cache/
 *.csv
 *.parquet
+storage/data/

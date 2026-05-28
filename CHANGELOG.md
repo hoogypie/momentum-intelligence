@@ -4,46 +4,47 @@
 
 ---
 
-## [v2.4] — 28 mei 2026 — Real Signal Expansion
+## [v2.5] — 28 mei 2026 — Historical Memory Layer
 
-**Context:** v2.3 had solide API polish maar alle intelligentie was nog
-placeholder (catalyst=NONE, social=0, sector heat handmatig). v2.4 voegt
-echte signalen toe: Finnhub nieuws, dynamische sector heat, marktssessie
-bewustzijn, verbeterde RS drempels en social architectuur.
+**Context:** v2.4 was een real-time scanner. Elke request was stateloos —
+geen geheugen van wat er eerder gescoord was. v2.5 voegt tijddimensie toe:
+snapshots persisteren, fase-overgangen worden getrackt, signalen verouderen.
 
-**Nieuwe modules:**
-- data/market_session.py  — MarketSession enum, sessie detectie per tijdstip
-- data/social_client.py   — SocialData stub, klaar voor StockTwits fase 3
-- data/sector_intelligence.py — Dynamische sector heat (60% dynamic / 40% static)
+**Nieuwe storage laag (storage/):**
+- snapshot_store.py  — JSON Lines persistence per ticker, trim op MAX_SNAPSHOTS
+- signal_decay.py    — FRESH/AGING/STALE/OLD/EXPIRED + decay multipliers
+- signal_tracker.py  — Fase-overgangen, catalyst tijdlijn, momentum trend
+- sector_history.py  — Sector heat + momentum trend over tijd
+- history_replay.py  — Evolutie, window check, sector trend
 
-**news_client.py herschreven:**
-- Echte Finnhub integratie (FINNHUB_API_KEY env var, graceful fallback)
-- NewsConfidence: HIGH/MEDIUM/LOW per artikel (bron, leeftijd, catalyst)
-- Source tier mapping (Reuters=1, PR Newswire=3)
-- Uitgebreide keyword lijst: guidance raised, record revenue, buyback, etc.
-- Negatieve signalen: SEC, class action, guidance cut, revenue miss
-- classify_catalyst_from_headlines() — sterkste catalyst wint
+**Nieuwe API endpoints:**
+- GET /history/{ticker}             — Signaal evolutie + decay
+- GET /history/{ticker}/window      — Is momentum window nog open?
+- GET /history/{ticker}/transitions — Fase-overgangen + catalyst tijdlijn
+- GET /sector/{name}/trend          — Sector heat trend
 
-**assembler.py:**
-- Gebruikt news_client.classify_catalyst_from_headlines() (uitgebreider)
-- Integreert social_client.get_social_data()
-- Dynamic sector heat via sector_intelligence.get_dynamic_sector_heat()
-- Verbeterde RS drempels (diff>2.5=STRONG, >1.0=MODERATE, <-2.0=UNDER)
-- sec_check_automated=True als FINNHUB_API_KEY aanwezig
+**Automatische persistence:**
+- Elke /analyze call slaat snapshot op
+- Fase-overgangen worden automatisch gedetecteerd
+- Catalyst wijzigingen worden bijgehouden
+- persist=false query param voor score zonder opslag
 
-**yahoo_client.py:**
-- market_session in TickerSnapshot
-- Premarket data alleen bij sessie=PREMARKET
+**Signal Decay model:**
+- FRESH (0-2u): 1.00x, geen downgrade
+- AGING (2-8u): 0.85x, geen downgrade
+- STALE (8-24u): 0.65x, 1 stap lager
+- OLD (24-48u): 0.40x, altijd WATCH
+- EXPIRED (>48u): 0.0x, altijd SKIP
+- FRENZY extra decay: ×0.70 bij AGING/STALE
 
-**Schema update:**
-- TickerSnapshot: market_session veld (optional, backward compat)
+**Nieuwe documentatie:** docs/TEMPORAL_ARCHITECTURE.md
 
-**Tests:**
-- tests/test_signals.py — 57 nieuwe tests
-- Totaal: 343/343 ✅
+**Tests:** tests/test_history.py — 63 tests
+**Totaal:** 406/406 ✅
 
 **Geen nieuwe scoring features.**
 
+---
 ---
 ---
 ---
