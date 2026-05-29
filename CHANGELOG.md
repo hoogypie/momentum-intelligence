@@ -4,6 +4,65 @@
 
 ---
 
+## [v2.11] — 29 mei 2026 — Validation Layer
+
+**Context:** Live scoring werkt na de v2.10 Yahoo fix. Vóór UI-werk is
+confidence calibratie nodig: hoe gedraagt de engine zich over echte tickers,
+over alle sectoren en marktcap lagen? v2.11 bouwt de tooling om dat
+systematisch te meten.
+
+**Nieuwe bestanden:**
+
+`research/validation_watchlist.json` (nieuw)
+- 39 gecureerde tickers in 9 groepen
+- Dekt alle regime-fases: HOT (drones/quantum), BUILDING (AI software),
+  DORMANT (power/energy), en een control groep (KO, JNJ, WMT)
+- Bevat per ticker: cap label, note, expected behavior
+- `expected_distribution` blok documenteert verwachte score-verdeling
+- `active` flag: tickers markeren als inactief zonder te verwijderen
+
+`scripts/validation_runner.py` (nieuw)
+- Batch-analyseert tickers via `build_ticker_input()` + `score_ticker()` direct
+  (geen HTTP, geen backend nodig)
+- Output: JSON (volledig) + CSV (gesorteerd op momentum score, errors onderaan)
+- Leesbaar terminal-rapport: beslissings-distributie, per-ticker tabel,
+  data kwaliteit waarschuwingen, engine observaties (catalyst=NONE prevalentie,
+  social capping, hard blocks)
+- CLI opties: `--group`, `--ticker`, `--delay`, `--no-persist`, `--force-refresh`
+- Rate limit bescherming: configureerbare delay tussen requests (default 1.5s)
+- Nooit een exception — elke ticker-fout wordt als `status: error` opgenomen
+
+`tests/test_validation_runner.py` (nieuw — 36 tests, 6 klassen)
+- `TestWatchlistLoading`    — JSON laden, groep-filter, active flag
+- `TestAnalyzeOne`          — succes/error pad, veldvolledigheid, nooit exception
+- `TestExtractTopReasons`   — blocked/skip/momentum reason extractie
+- `TestWriteOutputs`        — CSV + JSON aangemaakt, sortering, dir-aanmaak
+- `TestPrintReport`         — print crasht niet bij leeg / all-error input
+- `TestMainArgParsing`      — CLI ticker-override, group-filter doorgegeven
+
+**Test resultaten:**
+```
+tests/test_scoring.py          70  ✓
+tests/test_backend.py          36  ✓
+tests/test_data_stability.py   55  ✓
+tests/test_cache.py            74  ✓
+tests/test_signals.py          57  ✓
+tests/test_history.py          63  ✓
+tests/test_replay.py           60  ✓
+tests/test_evaluation.py       64  ✓
+tests/test_dev_experience.py   51  ✓
+tests/test_alerting.py         69  ✓
+tests/test_yahoo_client.py     19  ✓
+tests/test_validation_runner.py 36  ✓
+TOTAAL                        654  ✓
+```
+
+**Breaking changes:** Geen.
+**Scoring changes:** Geen.
+**API contract:** Ongewijzigd.
+
+---
+
 ## [v2.10] — 29 mei 2026 — Yahoo Fetch Compatibility Fix
 
 **Context:** yfinance 0.2.36 breekt op `fast_info.last_price` met

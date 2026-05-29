@@ -1,0 +1,133 @@
+{
+  "_meta": {
+    "description": "Curated validation tickers voor engine confidence calibratie. Dekt alle sectoren, marktcaps en momentum fases. NIET voor live alerting — alleen voor validation_runner.py.",
+    "version": "v1.0",
+    "created": "2026-05-29",
+    "purpose": "Evalueer engine-gedrag over echte tickers vóór UI-werk. Dekt: HOT sectoren, DORMANT sectoren, micro/large cap, SKIP-candidates, BLOCKED-candidates.",
+    "update_note": "Voeg tickers toe per sector. Verwijder nooit — markeer als 'active: false' bij delisting."
+  },
+  "groups": [
+    {
+      "id": "ai_infra",
+      "label": "AI Infrastructure",
+      "sector_heat": 95,
+      "rationale": "Fase 1 — bottleneck plays, hoogste regime-prioriteit",
+      "tickers": [
+        { "ticker": "NVDA",  "cap": "LARGE", "note": "GPU monopolie — benchmark voor engine" },
+        { "ticker": "MU",    "cap": "LARGE", "note": "HBM/DRAM schaarste play" },
+        { "ticker": "AVGO",  "cap": "LARGE", "note": "Custom AI chips + networking" },
+        { "ticker": "CRDO",  "cap": "MID",   "note": "Optische networking bottleneck" },
+        { "ticker": "ANET",  "cap": "LARGE", "note": "Datacenter switching — hyperscaler klant" },
+        { "ticker": "CIEN",  "cap": "MID",   "note": "Optische infra — sympathy CRDO" }
+      ]
+    },
+    {
+      "id": "ai_software",
+      "label": "AI Software / Orchestration",
+      "sector_heat": 78,
+      "rationale": "Fase 2 — enterprise AI ROI, workflow lock-in",
+      "tickers": [
+        { "ticker": "SNOW",  "cap": "LARGE", "note": "+34% AH na beat — AI consumption inflection" },
+        { "ticker": "DDOG",  "cap": "LARGE", "note": "AI observability platform" },
+        { "ticker": "NOW",   "cap": "LARGE", "note": "Enterprise workflow AI" },
+        { "ticker": "ORCL",  "cap": "LARGE", "note": "Cloud + AI database incumbent" },
+        { "ticker": "HUBS",  "cap": "LARGE", "note": "CRM/marketing AI — sympathy SNOW" }
+      ]
+    },
+    {
+      "id": "ai_pc",
+      "label": "AI PC / Edge",
+      "sector_heat": 85,
+      "rationale": "Fase 2 — incumbent layer, PC refresh cycle",
+      "tickers": [
+        { "ticker": "HPQ",   "cap": "LARGE", "note": "EPS +21% beat — AI PC refresh bevestigd" },
+        { "ticker": "DELL",  "cap": "LARGE", "note": "AI server + PC — dual thesis" },
+        { "ticker": "MSFT",  "cap": "LARGE", "note": "Copilot + Azure — anchor naam" }
+      ]
+    },
+    {
+      "id": "quantum",
+      "label": "Quantum Computing",
+      "sector_heat": 92,
+      "rationale": "Fase 3 — early discovery, hoge volatiliteit",
+      "tickers": [
+        { "ticker": "IONQ",  "cap": "SMALL", "note": "Marktleider quantum hardware" },
+        { "ticker": "QBTS",  "cap": "MICRO", "note": "Sympathy play — low float" },
+        { "ticker": "RGTI",  "cap": "MICRO", "note": "Photonics-based qubit — speculatief" },
+        { "ticker": "QUBT",  "cap": "MICRO", "note": "Quantum software — zeer speculatief" }
+      ]
+    },
+    {
+      "id": "drones_defense",
+      "label": "Drones / Defense",
+      "sector_heat": 98,
+      "rationale": "Fase 3 — Pentagon equity deals, explosief momentum",
+      "tickers": [
+        { "ticker": "KTOS",  "cap": "MID",   "note": "Drone + autonome systemen" },
+        { "ticker": "RCAT",  "cap": "SMALL", "note": "Drone carrier ETF proxy" },
+        { "ticker": "AXON",  "cap": "LARGE", "note": "Defense tech — AI law enforcement" },
+        { "ticker": "PLTR",  "cap": "LARGE", "note": "Defense AI data platform" }
+      ]
+    },
+    {
+      "id": "power_energy",
+      "label": "Power / Energy",
+      "sector_heat": 55,
+      "rationale": "Fase 4 — sluimerend, Hormuz hedge context",
+      "tickers": [
+        { "ticker": "GEV",   "cap": "LARGE", "note": "Grid infra — AI power demand" },
+        { "ticker": "VST",   "cap": "LARGE", "note": "Power producer — datacenter contracten" },
+        { "ticker": "CEG",   "cap": "LARGE", "note": "Nuclear — AI clean energy" },
+        { "ticker": "CCJ",   "cap": "LARGE", "note": "Uranium — Hormuz hedge" }
+      ]
+    },
+    {
+      "id": "cybersecurity",
+      "label": "Cybersecurity",
+      "sector_heat": 62,
+      "rationale": "Fase 2 — stabiel, structureel — verwacht WATCH/BUY_SMALL",
+      "tickers": [
+        { "ticker": "PANW",  "cap": "LARGE", "note": "Marktleider — verwacht WATCH door hoge koers" },
+        { "ticker": "CRWD",  "cap": "LARGE", "note": "Cloud-native security" },
+        { "ticker": "FTNT",  "cap": "LARGE", "note": "Network security incumbent" },
+        { "ticker": "ZS",    "cap": "LARGE", "note": "Zero-trust cloud security" }
+      ]
+    },
+    {
+      "id": "large_cap_anchor",
+      "label": "Large Cap Anchor",
+      "sector_heat": 70,
+      "rationale": "Benchmark namen — verwacht lagere scores door size en lage volatiliteit",
+      "tickers": [
+        { "ticker": "GOOGL", "cap": "LARGE", "note": "AI + cloud — eigen portfolio" },
+        { "ticker": "ASML",  "cap": "LARGE", "note": "EUV lithografie monopolie" },
+        { "ticker": "TSM",   "cap": "LARGE", "note": "Foundry monopolie" },
+        { "ticker": "AAPL",  "cap": "LARGE", "note": "AI PC optionaliteit — verwacht lage score" },
+        { "ticker": "META",  "cap": "LARGE", "note": "AI infra + Llama — verwacht matig" }
+      ]
+    },
+    {
+      "id": "skip_candidates",
+      "label": "Skip / Control groep",
+      "sector_heat": 30,
+      "rationale": "Engine moet deze SKIPPEN of WATCHEN — valideer skip-logica",
+      "tickers": [
+        { "ticker": "KO",    "cap": "LARGE", "note": "Consumer staples — geen momentum driver" },
+        { "ticker": "JNJ",   "cap": "LARGE", "note": "Pharma incumbent — verwacht SKIP" },
+        { "ticker": "WMT",   "cap": "LARGE", "note": "Retail — verwacht SKIP/WATCH" },
+        { "ticker": "GLD",   "cap": "LARGE", "note": "Gold ETF — geen catalyst mogelijk" }
+      ]
+    }
+  ],
+  "total_tickers": 40,
+  "expected_distribution": {
+    "note": "Ruwe verwachting op basis van sector heat en marktcap — valideer tegen engine output",
+    "BUY_MAX":      "2-4  (quantum micro caps bij hoge dag-moves)",
+    "BUY_STRONG":   "4-7  (AI infra + drones sector leaders)",
+    "BUY_MODERATE": "6-10 (AI software + AI PC + power)",
+    "BUY_SMALL":    "5-8  (cybersecurity + large cap anchors)",
+    "WATCH":        "8-12 (large caps, stabiele namen)",
+    "SKIP":         "4-6  (control groep + geen catalyst)",
+    "BLOCKED":      "0-1  (SEC/CFD — hangt af van live data)"
+  }
+}
