@@ -1,6 +1,6 @@
 # CLAUDE BOOTSTRAP — MOMENTUM INTELLIGENCE
 > Lees dit bestand EERST. Dit is het enige bestand dat je nodig hebt om te beginnen.
-> Versie: v2.9 | Igor × Claude | 28 mei 2026
+> Versie: v2.10 | Igor × Claude | 29 mei 2026
 
 ---
 
@@ -17,7 +17,7 @@ catalyst quality en relative strength.
 
 ## WAAR ZIJN WE?
 
-**Huidig versieniveau: v2.9**
+**Huidig versieniveau: v2.10**
 
 ```
 v2.0  FastAPI backend + Yahoo Finance
@@ -29,7 +29,8 @@ v2.5  Historical Memory Layer (snapshot persistence, signal decay)
 v2.6  Replay & Observation Tooling (diffs, timeline, export)
 v2.7  Signal Evaluation Layer (grades, statistics)
 v2.8  Documentation & Operating Manual
-v2.9  Alerting & Watchlist Layer  ← HUIDIGE VERSIE
+v2.9  Alerting & Watchlist Layer
+v2.10 Yahoo Fetch Compatibility Fix  ← HUIDIGE VERSIE
 ```
 
 ---
@@ -101,17 +102,18 @@ Combinatieregel: catalyst=NONE + score<50 → SKIP
 ## TESTRESULTATEN
 
 ```
-tests/test_scoring.py         70  ✓
-tests/test_backend.py         36  ✓
-tests/test_data_stability.py  55  ✓
-tests/test_cache.py           74  ✓
-tests/test_signals.py         57  ✓
-tests/test_history.py         63  ✓
-tests/test_replay.py          60  ✓
-tests/test_evaluation.py      64  ✓
-tests/test_dev_experience.py  51  ✓
-tests/test_alerting.py        69  ✓
-TOTAAL                       599  ✓  (geen netwerk vereist)
+tests/test_scoring.py          70  ✓
+tests/test_backend.py          36  ✓
+tests/test_data_stability.py   55  ✓
+tests/test_cache.py            74  ✓
+tests/test_signals.py          57  ✓
+tests/test_history.py          63  ✓
+tests/test_replay.py           60  ✓
+tests/test_evaluation.py       64  ✓
+tests/test_dev_experience.py   51  ✓
+tests/test_alerting.py         69  ✓
+tests/test_yahoo_client.py     19  ✓
+TOTAAL                        618  ✓  (geen netwerk vereist)
 ```
 
 ---
@@ -156,7 +158,14 @@ pip install -r requirements.txt
 cp .env.example .env          # Optioneel: FINNHUB_API_KEY invullen
 uvicorn backend.app:app --reload --port 8000
 python3 scripts/smoke_test.py # Verificeer alle endpoints
-pytest tests/ -q              # Moet 599 tests groen geven
+pytest tests/ -q              # Moet 618 tests groen geven
+
+# Yahoo Finance diagnose (bij fetch-fouten):
+python3 scripts/debug_yahoo.py
+python3 scripts/debug_yahoo.py IONQ MSFT
+
+# Volledige tracebacks in logs:
+MOMENTUM_DEBUG=1 uvicorn backend.app:app --reload --port 8000
 ```
 
 ---
@@ -166,12 +175,12 @@ pytest tests/ -q              # Moet 599 tests groen geven
 Lees dit bestand. Daarna kun je direct bouwen. Vraag altijd:
 1. "Welke versie bouwen we?" → antwoord geeft de richting
 2. "Zijn er open action items?" → check DECISIONS.md voor recente D-XXX
-3. "Welke tests mogen niet breken?" → alle 599
+3. "Welke tests mogen niet breken?" → alle 618
 
 Als er twijfel is over architectuurkeuzes: **DECISIONS.md is de tiebreaker.**
 Als er twijfel is over wat het systeem doet: **OPERATING_MANUAL.md is de referentie.**
 
 ---
 
-*Momentum Intelligence v2.9 · Igor × Claude · 28 mei 2026*
+*Momentum Intelligence v2.10 · Igor × Claude · 29 mei 2026*
 *Geen formeel beleggingsadvies (Wft)*

@@ -25,7 +25,7 @@ Layer 3 — AI Narrative  Claude explains the score. Never calculates it.
 | Phase | Description | Status |
 |---|---|---|
 | 1 | Score Engine | ✅ Complete — v1.3, 235/235 tests passing |
-| 2 | Python Backend | ✅ Complete — v2.9, Alerting & Watchlist Layer |
+| 2 | Python Backend | ✅ Complete — v2.10, Yahoo Fetch Compatibility Fix |
 | 3 | Dashboard | 🔲 Later |
 | 4 | Deployment | 🔲 Later |
 | 5 | Data Expansion | 🔲 Optional |
@@ -61,12 +61,13 @@ curl http://localhost:8000/analyze/UMAC
 # Install pytest (one-time)
 pip install pytest
 
-# Run all 70 tests
+# Run all 618 tests
 pytest tests/ -v
 
 # Run a specific class
 pytest tests/test_scoring.py::TestHardBlocked -v
 pytest tests/test_scoring.py::TestRegression -v
+pytest tests/test_yahoo_client.py -v
 
 # Stop at first failure
 pytest tests/ -x --tb=short
@@ -83,6 +84,12 @@ pytest tests/ -x --tb=short
 | `TestPhaseDetection` | ACCUMULATION → EXHAUSTION |
 | `TestMarketCapTier` | Tier assignment + sizing caps |
 | `TestRegression` | All 11 mock cases with momentum/skip ranges |
+| `TestFastInfoSuccess` | Normal fast_info path, no fallback |
+| `TestHistoryFallback` | fast_info fails → history fallback used |
+| `TestBothPathsFail` | Both paths fail → RuntimeError |
+| `TestGetSnapshotFallback` | get_snapshot() never raises |
+| `TestFetchFromHistoryHelper` | _fetch_from_history() edge cases |
+| `TestFetchErrorLogging` | Exception type logged (caplog) |
 
 
 
@@ -97,7 +104,7 @@ momentum-intelligence/
 ├── cache/
 │   └── market_cache.py         Cache prep (DISABLED — v2.2)
 ├── data/
-│   ├── yahoo_client.py         Retry + backoff + DataConfidence
+│   ├── yahoo_client.py         Retry + backoff + DataConfidence + history fallback
 │   ├── news_client.py          Finnhub placeholder
 │   └── assembler.py            TickerInput builder + missing field handling
 ├── schemas/
@@ -109,10 +116,13 @@ momentum-intelligence/
 │   └── scoring_v1_2.py         Score engine (pure functions, no AI)
 ├── config/
 │   └── sectors.json            Sector heat — update weekly
+├── scripts/
+│   └── debug_yahoo.py          Yahoo Finance diagnose tool
 └── tests/
     ├── test_scoring.py          70 engine tests
     ├── test_backend.py          36 API tests (mocked)
-    └── test_data_stability.py   53 stability tests
+    ├── test_data_stability.py   55 stability tests
+    └── test_yahoo_client.py     19 yahoo client + fallback tests
 ```
 
 ---

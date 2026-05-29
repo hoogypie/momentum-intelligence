@@ -5,7 +5,7 @@ httpx==0.26.0
 python-dotenv==1.0.1
 
 # Data
-yfinance==0.2.36
+yfinance>=0.2.54
 pandas==2.2.0
 requests==2.31.0
 

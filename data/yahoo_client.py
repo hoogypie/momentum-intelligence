@@ -1,15 +1,24 @@
 """
 data/yahoo_client.py
-Yahoo Finance data client — v2.4
+Yahoo Finance data client — v2.5
 
-Wijzigingen t.o.v. v2.3:
+Wijzigingen t.o.v. v2.4:
     - market_session toegevoegd aan TickerSnapshot
     - Premarket onderscheid: alleen premarket_pct als sessie=PREMARKET
     - get_snapshot() accepteert force_refresh kwarg
+
+Wijzigingen v2.5 (debug/fallback):
+    - Verbeterde logging: exception type + message + welke yfinance-call faalde
+    - Traceback NIET geslikken in debug mode (MOMENTUM_DEBUG=1)
+    - Fallback: als fast_info faalt, probeer history(period="5d")
+    - Prijs, volume en prev_close worden afgeleid uit history bij fast_info-fout
+    - Nieuwe helper: _fetch_from_history()
 """
 
+import os
 import time
 import logging
+import traceback as _tb
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -24,6 +33,9 @@ from cache.market_cache import (
 from data.market_session import get_market_session, MarketSession
 
 logger = logging.getLogger(__name__)
+
+# Zet MOMENTUM_DEBUG=1 in je shell voor volledige tracebacks in de logs
+_DEBUG_MODE = os.getenv("MOMENTUM_DEBUG", "0").strip() == "1"
 
 _MAX_RETRIES  = 3
 _BACKOFF_SECS = [0.0, 0.5, 1.5]
@@ -40,6 +52,24 @@ def _is_rate_limited(exc: Exception) -> bool:
 
 def _is_auth_error(exc: Exception) -> bool:
     return "403" in str(exc) or "forbidden" in str(exc).lower()
+
+
+def _log_fetch_error(ticker: str, call_name: str, exc: Exception) -> None:
+    """
+    Logt een yfinance-fout met: exception type, message en welke call faalde.
+    In debug mode wordt ook de volledige traceback gelogd.
+    """
+    exc_type = type(exc).__name__
+    exc_msg  = str(exc)
+    logger.warning(
+        "yahoo: %s — %s mislukt [%s: %s]",
+        ticker, call_name, exc_type, exc_msg,
+    )
+    if _DEBUG_MODE:
+        logger.debug(
+            "yahoo: %s — %s volledige traceback:\n%s",
+            ticker, call_name, _tb.format_exc(),
+        )
 
 
 def _snap_to_dict(s: TickerSnapshot) -> dict:
@@ -90,40 +120,139 @@ def _dict_to_snap(ticker: str, d: dict, age: float, ttl_rem: float) -> TickerSna
     )
 
 
+def _fetch_from_history(ticker: str, t) -> Optional[dict]:
+    """
+    Fallback: haal prijs en volume op via history(period='5d').
+    Retourneert een dict met de beschikbare velden, of None als ook dit faalt.
+
+    Afgeleid uit history:
+        price      → laatste slotkoers
+        prev_close → slotkoers één dag eerder (of zelfde als price bij 1 rij)
+        volume_today   → volume van de laatste handelsdag
+        avg_volume_20d → gemiddeld volume over alle beschikbare rijen
+    Niet afleidbaar uit history:
+        market_cap, float_shares, premarket_price
+    """
+    try:
+        hist = t.history(period="5d", auto_adjust=True)
+    except Exception as exc:
+        _log_fetch_error(ticker, "history(period='5d')", exc)
+        return None
+
+    if hist is None or hist.empty:
+        logger.warning(
+            "yahoo: %s — history(period='5d') retourneerde lege DataFrame "
+            "(ticker ongeldig, delisted, of Yahoo geblokkeerd)",
+            ticker,
+        )
+        return None
+
+    try:
+        price          = float(hist["Close"].iloc[-1])
+        prev_close     = float(hist["Close"].iloc[-2]) if len(hist) >= 2 else price
+        volume_today   = int(hist["Volume"].iloc[-1])
+        avg_volume_20d = max(int(hist["Volume"].mean()), 1)
+
+        logger.info(
+            "yahoo: %s — history-fallback OK "
+            "(price=%.2f prev_close=%.2f vol=%d avg_vol=%d)",
+            ticker, price, prev_close, volume_today, avg_volume_20d,
+        )
+        return {
+            "price":         price,
+            "prev_close":    prev_close,
+            "volume_today":  volume_today,
+            "avg_volume_20d": avg_volume_20d,
+        }
+    except Exception as exc:
+        _log_fetch_error(ticker, "history-parsing", exc)
+        return None
+
+
 def _fetch_once(ticker: str) -> TickerSnapshot:
     import yfinance as yf
 
     session = get_market_session()
     t       = yf.Ticker(ticker)
-    fi      = t.fast_info
 
-    price      = _safe_float(fi, "last_price",     0.0)
-    prev_close = _safe_float(fi, "previous_close", price)
+    # ── PAD 1: fast_info ─────────────────────────────────────────────────────
+    fast_info_ok   = False
+    price          = 0.0
+    prev_close     = 0.0
+    day_change_pct = 0.0
+    pm_price       = None
+    premarket_pct  = 0.0
+    premarket_available = False
+    volume_today   = 0
+    avg_volume_20d = 1
+    market_cap     = None
+    shares_out     = None
 
-    day_change_pct = (
-        ((price - prev_close) / prev_close * 100) if prev_close > 0 else 0.0
-    )
+    try:
+        fi = t.fast_info
 
-    # Pre-market data alleen relevant als we IN pre-market sessie zitten
-    pm_price = _safe_float(fi, "pre_market_price", None)
-    if pm_price and prev_close > 0 and session == MarketSession.PREMARKET:
-        premarket_pct       = (pm_price - prev_close) / prev_close * 100
-        premarket_available = True
-    else:
-        premarket_pct       = 0.0
-        premarket_available = False
-        pm_price            = None
+        price_raw      = _safe_float(fi, "last_price",     0.0)
+        prev_close_raw = _safe_float(fi, "previous_close", price_raw)
 
-    hist = t.history(period="1mo", auto_adjust=True)
-    if not hist.empty:
-        avg_volume_20d = max(int(hist["Volume"].mean()), 1)
-        volume_today   = int(hist["Volume"].iloc[-1])
-    else:
-        avg_volume_20d = 1
-        volume_today   = 0
+        if price_raw <= 0:
+            raise ValueError(
+                f"fast_info.last_price retourneerde {price_raw!r} — "
+                "geen geldige prijs"
+            )
 
-    market_cap   = _safe_float(fi, "market_cap",         None)
-    shares_out   = _safe_float(fi, "shares_outstanding", None)
+        price      = price_raw
+        prev_close = prev_close_raw
+
+        day_change_pct = (
+            ((price - prev_close) / prev_close * 100) if prev_close > 0 else 0.0
+        )
+
+        pm_price = _safe_float(fi, "pre_market_price", None)
+        if pm_price and prev_close > 0 and session == MarketSession.PREMARKET:
+            premarket_pct       = (pm_price - prev_close) / prev_close * 100
+            premarket_available = True
+        else:
+            premarket_pct       = 0.0
+            premarket_available = False
+            pm_price            = None
+
+        hist = t.history(period="1mo", auto_adjust=True)
+        if not hist.empty:
+            avg_volume_20d = max(int(hist["Volume"].mean()), 1)
+            volume_today   = int(hist["Volume"].iloc[-1])
+        else:
+            avg_volume_20d = 1
+            volume_today   = 0
+
+        market_cap = _safe_float(fi, "market_cap",         None)
+        shares_out = _safe_float(fi, "shares_outstanding", None)
+
+        fast_info_ok = True
+        logger.debug("yahoo: %s — fast_info OK (price=%.2f)", ticker, price)
+
+    except Exception as exc:
+        _log_fetch_error(ticker, "fast_info", exc)
+
+    # ── PAD 2: history-fallback als fast_info faalde ──────────────────────────
+    if not fast_info_ok:
+        logger.info("yahoo: %s — fast_info mislukt, probeer history-fallback", ticker)
+        fallback = _fetch_from_history(ticker, t)
+
+        if fallback is not None:
+            price          = fallback["price"]
+            prev_close     = fallback["prev_close"]
+            volume_today   = fallback["volume_today"]
+            avg_volume_20d = fallback["avg_volume_20d"]
+            day_change_pct = (
+                ((price - prev_close) / prev_close * 100) if prev_close > 0 else 0.0
+            )
+        else:
+            # Beide paden kapot — laat get_snapshot() de fout afhandelen
+            raise RuntimeError(
+                f"Zowel fast_info als history(period='5d') mislukten voor '{ticker}'. "
+                "Yahoo Finance is mogelijk geblokkeerd of de ticker is ongeldig."
+            )
+
     float_shares = int(shares_out) if shares_out and shares_out > 0 else None
 
     confidence = determine_confidence(
@@ -175,6 +304,17 @@ def get_snapshot(ticker: str, force_refresh: bool = False) -> TickerSnapshot:
             return snap
         except Exception as exc:
             last_error = exc
+            exc_type   = type(exc).__name__
+            exc_msg    = str(exc)
+            logger.warning(
+                "yahoo: %s — poging %d/%d mislukt [%s: %s]",
+                ticker, attempt + 1, _MAX_RETRIES, exc_type, exc_msg,
+            )
+            if _DEBUG_MODE:
+                logger.debug(
+                    "yahoo: %s — poging %d traceback:\n%s",
+                    ticker, attempt + 1, _tb.format_exc(),
+                )
             if _is_rate_limited(exc):
                 set_cooldown(ticker, seconds=60)
                 break
@@ -182,7 +322,7 @@ def get_snapshot(ticker: str, force_refresh: bool = False) -> TickerSnapshot:
                 continue
 
     # Cache fallback
-    error_msg = str(last_error) if last_error else "Onbekende fout"
+    error_msg = f"{type(last_error).__name__}: {last_error}" if last_error else "Onbekende fout"
     if CACHE_ENABLED:
         entry = get_cached(ticker)
         if entry:
@@ -205,13 +345,14 @@ def get_snapshot(ticker: str, force_refresh: bool = False) -> TickerSnapshot:
 def get_spy_return() -> float:
     try:
         import yfinance as yf
-        fi         = yf.Ticker("SPY").fast_info
+        t          = yf.Ticker("SPY")
+        fi         = t.fast_info
         price      = _safe_float(fi, "last_price",     0.0)
         prev_close = _safe_float(fi, "previous_close", price)
         if prev_close > 0:
             return round((price - prev_close) / prev_close * 100, 2)
     except Exception as exc:
-        logger.debug(f"yahoo: SPY mislukt: {exc}")
+        _log_fetch_error("SPY", "fast_info", exc)
     return 0.0
 
 

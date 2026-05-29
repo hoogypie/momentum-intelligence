@@ -4,6 +4,84 @@
 
 ---
 
+## [v2.10] — 29 mei 2026 — Yahoo Fetch Compatibility Fix
+
+**Context:** yfinance 0.2.36 breekt op `fast_info.last_price` met
+`KeyError: 'currentTradingPeriod'`. Yahoo heeft hun interne API-response
+gewijzigd; de sleutel `currentTradingPeriod` ontbreekt in de reply.
+Gevolg: elke `/analyze/{ticker}` call retourneerde 422 FETCH_ERROR.
+Dit is een data-laag fix — geen scoring, geen API-contract, geen schema's.
+
+**Root cause:**
+`fast_info.last_price` roept intern `_get_1y_prices()` aan, die
+`self._md["currentTradingPeriod"]` verwacht. Na Yahoo's API-wijziging
+staat die sleutel er niet meer in. yfinance>=0.2.54 lost dit op.
+
+**Gewijzigd:**
+
+`requirements.txt`
+- `yfinance==0.2.36` → `yfinance>=0.2.54`
+- Reden: 0.2.54 herstelt de cookie/crumb auth en de `currentTradingPeriod`
+  key handling. Exact >= in plaats van pin omdat Yahoo periodiek hun
+  auth flow wijzigt; vastpinnen op een vaste patch-versie reproduceert
+  dit probleem.
+
+`data/yahoo_client.py` (v2.4 → v2.5)
+- `_log_fetch_error(ticker, call_name, exc)`: centrale log-helper die
+  altijd `ExceptionType: message` + welke yfinance-call faalde logt.
+  Met `MOMENTUM_DEBUG=1` ook volledige traceback via `logger.debug`.
+- `_fetch_from_history(ticker, t)`: nieuwe fallback-helper. Als
+  `fast_info` faalt, haalt deze `price`, `prev_close`, `volume_today`
+  en `avg_volume_20d` op uit `history(period="5d")`. `market_cap` en
+  `float_shares` zijn dan `None` (niet afleidbaar uit history).
+- `_fetch_once()`: twee-paden structuur. Pad 1: `fast_info` (normaal).
+  Pad 2: `_fetch_from_history()` als pad 1 faalt. Alleen als beide
+  paden falen → `RuntimeError` met duidelijke melding.
+- `get_snapshot()`: error-string bevat nu altijd `ExceptionType: message`
+  (was: alleen de message, type werd weggegooied).
+- Poging-logging in retry-loop toont nu ook exception type + message.
+
+`scripts/debug_yahoo.py` (nieuw)
+- Standalone script, geen project-imports nodig.
+- Test drie paden: `fast_info`, `history(period="5d")`, `info`.
+- Print volledige traceback bij elke fout.
+- Eindvonnis per ticker: VOLLEDIG WERKEND / GEDEELTELIJK / BEIDE KAPOT.
+- Gebruik: `python3 scripts/debug_yahoo.py` of
+  `python3 scripts/debug_yahoo.py IONQ MSFT`
+
+**Nieuwe tests:**
+
+`tests/test_yahoo_client.py` (nieuw — 19 tests, 6 klassen)
+- `TestFastInfoSuccess`         — normaal pad, geen fallback aangeroepen
+- `TestHistoryFallback`         — fast_info faalt → history correct gebruikt
+- `TestBothPathsFail`           — beide paden kapot → RuntimeError
+- `TestGetSnapshotFallback`     — get_snapshot() gooit nooit een exception
+- `TestFetchFromHistoryHelper`  — _fetch_from_history() edge cases
+- `TestFetchErrorLogging`       — exception type staat in logs (caplog)
+
+**Test resultaten:**
+```
+tests/test_scoring.py          70  ✓
+tests/test_backend.py          36  ✓
+tests/test_data_stability.py   55  ✓
+tests/test_cache.py            74  ✓
+tests/test_signals.py          57  ✓
+tests/test_history.py          63  ✓
+tests/test_replay.py           60  ✓
+tests/test_evaluation.py       64  ✓
+tests/test_dev_experience.py   51  ✓
+tests/test_alerting.py         69  ✓
+tests/test_yahoo_client.py     19  ✓  (nieuw)
+TOTAAL                        618  ✓
+```
+
+**Breaking changes:** Geen.
+**Scoring changes:** Geen.
+**API contract:** Ongewijzigd.
+**Kalibratie noot:** Geen score-verschuivingen — data-laag only.
+
+---
+
 ## [v2.9] — 28 mei 2026 — Alerting & Watchlist Layer
 
 **Context:** v2.8 was documentatie-only. v2.9 voegt actionable monitoring

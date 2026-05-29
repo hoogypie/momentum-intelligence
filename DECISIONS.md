@@ -5,6 +5,29 @@
 
 ---
 
+## D-024 | 29 mei 2026 | YFINANCE: >= pin in plaats van exacte versie
+
+**Beslissing:** `requirements.txt` gebruikt `yfinance>=0.2.54` in plaats van een exacte pin.
+
+**Rationale:** Yahoo wijzigt periodiek hun auth flow en API-response structuur.
+0.2.36 brak op `KeyError: 'currentTradingPeriod'` doordat Yahoo `currentTradingPeriod`
+uit hun v8-response verwijderde. 0.2.54 herstelt dit via nieuwe cookie/crumb auth.
+Een exacte pin op een patch-versie reproduceert dit patroon: de volgende Yahoo-wijziging
+breekt dezelfde pin opnieuw. `>=0.2.54` staat toe dat `pip install` de meest recente
+compatibele versie installeert, terwijl de ondergrens de bekende werkende versie garandeert.
+
+**Overwogen alternatieven:**
+- Exacte pin `==0.2.54` → afgewezen: eerste nieuwe Yahoo-wijziging breekt het opnieuw
+- `>=0.2.54,<0.3` → te restrictief voor een onofficiële library zonder semver-garanties
+- Ongepind → risico op grote breaking release; ondergrens is minimale bescherming
+
+**Implicatie:** Bij toekomstige yfinance-breuk: pin tijdelijk terug naar laatste werkende
+versie, documenteer in CHANGELOG, fix en verhoog de ondergrens.
+
+**Gerelateerd:** CHANGELOG v2.10, D-001 (gratis data eerst)
+
+---
+
 ## D-007 | 28 mei 2026 | WORKFLOW: Twee-AI review pipeline
 
 **Beslissing:** Claude = builder/researcher. ChatGPT = strategist/risk reviewer. Igor = arbiter.
