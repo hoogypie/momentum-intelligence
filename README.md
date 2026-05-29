@@ -127,6 +127,12 @@ momentum-intelligence/
 
 ---
 
+## Daily Validation Workflow
+
+See [docs/VALIDATION_CHECKLIST.md](docs/VALIDATION_CHECKLIST.md) for the full validation plan, daily/weekly workflow, metrics to track, and when calibration is justified.
+
+---
+
 ## Team
 
 | Role | Who | Responsibility |
