@@ -174,6 +174,26 @@ def record_trade(trade: PaperTrade) -> None:
     )
 
 
+def has_trade_today(ticker: str, decision: str, signal_dt: Optional[datetime] = None) -> bool:
+    """
+    Controleert of er al een trade bestaat voor (ticker, decision) op dezelfde kalenderdag.
+    Beschermt tegen duplicate trades bij meerdere runs per dag.
+
+    Args:
+        signal_dt: Tijdstip van het signaal (UTC). Standaard: nu.
+    """
+    signal_dt = signal_dt or datetime.now(timezone.utc)
+    signal_date = signal_dt.strftime("%Y-%m-%d")
+
+    for trade in _read_jsonl(_trade_path(ticker)):
+        if trade.get("decision") != decision:
+            continue
+        ts = trade.get("signal_ts", "")
+        if ts[:10] == signal_date:
+            return True
+    return False
+
+
 def save_trade_from_result(
     ticker:          str,
     decision:        str,
@@ -192,10 +212,18 @@ def save_trade_from_result(
     data_confidence: str  = "UNKNOWN",
     is_partial_data: bool = False,
     signal_ts:       Optional[datetime] = None,
+    allow_duplicate: bool = False,
 ) -> Optional[str]:
     """
     Convenience wrapper: maakt PaperTrade aan en slaat op.
     Retourneert trade_id, of None als beslissing niet BUY is.
+
+    Deduplicatie: per (ticker, decision, dag) wordt max. 1 trade opgeslagen.
+    Een tweede run op dezelfde dag voor dezelfde ticker+beslissing wordt
+    NIET opgeslagen. Dit voorkomt opgeblazen sample sizes.
+
+    allow_duplicate=True overschrijft deduplicatie (voor tests / backfill).
+
     Gooit nooit een exception.
     """
     if decision not in BUY_DECISIONS:
@@ -203,6 +231,15 @@ def save_trade_from_result(
 
     try:
         now = signal_ts or datetime.now(timezone.utc)
+
+        # Deduplicatie: sla niet op als er al een trade is voor deze ticker+decision+dag
+        if not allow_duplicate and has_trade_today(ticker.upper(), decision, now):
+            logger.debug(
+                "paper_trade_store: %s %s al opgeslagen vandaag — overgeslagen (dedup)",
+                ticker, decision,
+            )
+            return None
+
         trade = PaperTrade(
             trade_id        = _make_trade_id(ticker, decision, now),
             ticker          = ticker.upper(),

@@ -44,13 +44,20 @@ _TOLERANCE_DAYS = 2
 
 
 def _fetch_close_price(
-    ticker:     str,
-    target_dt:  datetime,
-    tolerance:  int = _TOLERANCE_DAYS,
+    ticker:           str,
+    target_dt:        datetime,
+    tolerance:        int              = _TOLERANCE_DAYS,
+    earliest_allowed: Optional[datetime] = None,
 ) -> Optional[float]:
     """
     Haalt de slotkoers op die het dichtst bij target_dt ligt.
     Zoekt binnen [target_dt - tolerance, target_dt + tolerance].
+
+    Args:
+        earliest_allowed: Als opgegeven, worden datums vóór deze grens
+                          NOOIT gebruikt. Beschermt tegen look-ahead bias:
+                          de slotkoers van de signaaldag mag nooit als
+                          toekomstige prijs worden gebruikt.
 
     Returns:
         Slotkoers als float, of None als niet gevonden.
@@ -58,22 +65,35 @@ def _fetch_close_price(
     try:
         import yfinance as yf
         t     = yf.Ticker(ticker)
-        start = (target_dt - timedelta(days=tolerance)).strftime("%Y-%m-%d")
+        # Gebruik earliest_allowed als ondergrens als die later valt dan target - tolerance
+        lo_dt = target_dt - timedelta(days=tolerance)
+        if earliest_allowed and earliest_allowed > lo_dt:
+            lo_dt = earliest_allowed
+
+        start = lo_dt.strftime("%Y-%m-%d")
         end   = (target_dt + timedelta(days=tolerance + 1)).strftime("%Y-%m-%d")
+
+        # Als window leeg is (earliest > target + tolerance): geen data mogelijk
+        if lo_dt > target_dt + timedelta(days=tolerance):
+            return None
 
         hist = t.history(start=start, end=end, auto_adjust=True)
         if hist is None or hist.empty:
             return None
 
         # Zoek de rij die het dichtst bij target_dt ligt
-        target_ts = target_dt.timestamp()
-        best_price = None
-        best_diff  = float("inf")
+        # — maar nooit vóór earliest_allowed
+        target_ts   = target_dt.timestamp()
+        earliest_ts = earliest_allowed.timestamp() if earliest_allowed else 0.0
+        best_price  = None
+        best_diff   = float("inf")
 
         for idx in hist.index:
             try:
                 row_ts = idx.timestamp()
-                diff   = abs(row_ts - target_ts)
+                if row_ts < earliest_ts:
+                    continue   # Look-ahead bias bescherming
+                diff = abs(row_ts - target_ts)
                 if diff < best_diff:
                     best_diff  = diff
                     best_price = float(hist.loc[idx, "Close"])
@@ -134,7 +154,13 @@ def evaluate_trade(trade: dict) -> dict:
                 )
                 continue
 
-            price = _fetch_close_price(ticker, target_dt)
+            # LOOK-AHEAD BIAS BESCHERMING:
+            # Het search window mag NOOIT starten vóór signal_ts + 1 kalenderdag.
+            # Zonder dit kan de slotkoers van de signaaldag zelf worden gebruikt
+            # als "1d outcome" — dat is geen toekomstige prijs maar een verleden prijs.
+            earliest_allowed = signal_ts + timedelta(days=1)
+
+            price = _fetch_close_price(ticker, target_dt, earliest_allowed=earliest_allowed)
             if price is not None:
                 trade[price_key]  = price
                 trade[return_key] = round((price - entry) / entry * 100, 3)

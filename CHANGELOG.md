@@ -4,6 +4,44 @@
 
 ---
 
+## [v2.13.1] — 29 mei 2026 — Paper Trading Bias Fixes
+
+**Context:** End-to-end review van het paper trading framework (v2.13)
+identificeerde twee kritieke methodologische fouten die statistieken
+zouden vertekenen.
+
+**FLAW 1 FIXED — Look-ahead bias in 1d horizon**
+Root cause: `_HORIZON_CALENDAR_DAYS["1d"] = 2` + `_TOLERANCE_DAYS = 2`
+gaf een search window van [signal_dag, signal_dag+4]. De slotkoers van
+de signaaldag zelf viel binnen het window en kon als "1d outcome" worden
+gevonden — dat is een prijs uit het verleden, geen toekomst.
+
+Fix: `_fetch_close_price()` accepteert nu `earliest_allowed` parameter.
+`evaluate_trade()` geeft altijd `signal_ts + 1 kalenderdag` mee als
+ondergrens. Geen enkel horizon kan de signaaldag of eerder gebruiken.
+
+**FLAW 2 FIXED — Duplicate trades bij meerdere runs per dag**
+Root cause: `trade_id` was timestamp-gebaseerd. Twee runs op dezelfde
+dag voor dezelfde ticker gaven twee verschillende IDs → twee records.
+Bij statistieken leek de sample size groter dan hij was.
+
+Fix: `save_trade_from_result()` controleert via `has_trade_today()` of
+er al een trade bestaat voor (ticker, decision, dag). Tweede run op
+zelfde dag retourneert `None` en slaat niet op.
+`allow_duplicate=True` beschikbaar voor tests en backfill.
+
+**Test resultaten:**
+```
+tests/test_paper_trading.py        44  ✓  (was 41, +3 dedup tests)
+TOTAAL                            783  ✓
+```
+
+**Breaking changes:** Geen voor scores of API.
+**Data impact:** Bestaande trades in storage worden niet gewijzigd.
+Nieuwe runs slaan geen duplicaten meer op.
+
+---
+
 ## [v2.13] — 29 mei 2026 — Paper Trading Validation Framework
 
 **Context:** Engine scoort correct en catalyst intelligence werkt. Vóór

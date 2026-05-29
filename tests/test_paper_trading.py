@@ -190,6 +190,85 @@ class TestPaperTradeStore:
                 assert BUY_DECISIONS.issubset(recorded_decisions)
 
 
+
+    def test_deduplication_prevents_same_day_duplicate(self, tmp_path):
+        """Tweede run op dezelfde dag voor zelfde ticker+decision wordt overgeslagen."""
+        from storage.paper_trade_store import save_trade_from_result, load_trades
+        from datetime import datetime, timezone
+        same_day = datetime(2026, 6, 2, 9, 30, 0, tzinfo=timezone.utc)
+        same_day_later = datetime(2026, 6, 2, 15, 0, 0, tzinfo=timezone.utc)
+
+        with patch("storage.paper_trade_store._TRADES_DIR", str(tmp_path)):
+            with patch("storage.paper_trade_store._INDEX_PATH", str(tmp_path / "_index.jsonl")):
+                id1 = save_trade_from_result(
+                    ticker="NVDA", decision="BUY_MODERATE", momentum_score=65.0,
+                    skip_score=0, phase="BREAKOUT", sector_id="ai_infra",
+                    sector_heat=95, catalyst_type="STRONG", catalyst_source="OWN",
+                    catalyst_desc="test", entry_price=135.0, day_change_pct=2.5,
+                    volume_ratio=3.0, premarket_pct=0.0, signal_ts=same_day,
+                )
+                id2 = save_trade_from_result(
+                    ticker="NVDA", decision="BUY_MODERATE", momentum_score=65.0,
+                    skip_score=0, phase="BREAKOUT", sector_id="ai_infra",
+                    sector_heat=95, catalyst_type="STRONG", catalyst_source="OWN",
+                    catalyst_desc="test", entry_price=135.5, day_change_pct=2.8,
+                    volume_ratio=3.1, premarket_pct=0.0, signal_ts=same_day_later,
+                )
+                assert id1 is not None, "Eerste trade moet worden opgeslagen"
+                assert id2 is None, "Tweede trade op zelfde dag moet worden overgeslagen"
+                trades = load_trades(ticker="NVDA")
+                assert len(trades) == 1
+
+    def test_different_day_allows_new_trade(self, tmp_path):
+        """Trades op verschillende dagen zijn toegestaan."""
+        from storage.paper_trade_store import save_trade_from_result, load_trades
+        from datetime import datetime, timezone
+        day1 = datetime(2026, 6, 2, 9, 30, 0, tzinfo=timezone.utc)
+        day2 = datetime(2026, 6, 3, 9, 30, 0, tzinfo=timezone.utc)
+
+        with patch("storage.paper_trade_store._TRADES_DIR", str(tmp_path)):
+            with patch("storage.paper_trade_store._INDEX_PATH", str(tmp_path / "_index.jsonl")):
+                id1 = save_trade_from_result(
+                    ticker="IONQ", decision="BUY_SMALL", momentum_score=55.0,
+                    skip_score=0, phase="BREAKOUT", sector_id="quantum",
+                    sector_heat=92, catalyst_type="MODERATE", catalyst_source="OWN",
+                    catalyst_desc="test", entry_price=25.0, day_change_pct=5.0,
+                    volume_ratio=3.0, premarket_pct=0.0, signal_ts=day1,
+                )
+                id2 = save_trade_from_result(
+                    ticker="IONQ", decision="BUY_SMALL", momentum_score=57.0,
+                    skip_score=0, phase="BREAKOUT", sector_id="quantum",
+                    sector_heat=92, catalyst_type="MODERATE", catalyst_source="OWN",
+                    catalyst_desc="test", entry_price=26.0, day_change_pct=4.5,
+                    volume_ratio=2.8, premarket_pct=0.0, signal_ts=day2,
+                )
+                assert id1 is not None
+                assert id2 is not None
+                trades = load_trades(ticker="IONQ")
+                assert len(trades) == 2
+
+    def test_allow_duplicate_flag_bypasses_dedup(self, tmp_path):
+        """allow_duplicate=True slaat deduplicatie over — twee trades zelfde dag toegestaan."""
+        from storage.paper_trade_store import save_trade_from_result, load_trades
+        from datetime import datetime, timezone, timedelta
+        ts1 = datetime(2026, 6, 2, 9, 30, 0, tzinfo=timezone.utc)
+        ts2 = datetime(2026, 6, 2, 15, 0, 0, tzinfo=timezone.utc)  # Andere seconde = ander trade_id
+
+        with patch("storage.paper_trade_store._TRADES_DIR", str(tmp_path)):
+            with patch("storage.paper_trade_store._INDEX_PATH", str(tmp_path / "_index.jsonl")):
+                base = dict(decision="BUY_SMALL", momentum_score=55.0, skip_score=0,
+                            phase="BREAKOUT", sector_id="quantum", sector_heat=92,
+                            catalyst_type="MODERATE", catalyst_source="OWN",
+                            catalyst_desc="test", entry_price=25.0, day_change_pct=5.0,
+                            volume_ratio=3.0, premarket_pct=0.0)
+                id1 = save_trade_from_result(ticker="QBTS", signal_ts=ts1, **base)
+                id2 = save_trade_from_result(ticker="QBTS", signal_ts=ts2,
+                                             allow_duplicate=True, **base)
+                assert id1 is not None
+                assert id2 is not None
+                assert id1 != id2  # Verschillende timestamps = verschillende IDs
+                assert len(load_trades(ticker="QBTS")) == 2
+
 # ── TestPaperTradeFilters ─────────────────────────────────────────────────────
 
 class TestPaperTradeFilters:
@@ -326,19 +405,16 @@ class TestPaperTradeEvaluator:
         trade = self._make_full_trade(age_days=15)
 
         with patch("storage.paper_trade_evaluator._fetch_close_price") as mock_fetch:
-            mock_fetch.side_effect = lambda ticker, target_dt, tolerance=2: {
-                "1d":  105.0,
-                "3d":  108.0,
-                "5d":  110.0,
-                "10d": 115.0,
-            }.get(
-                min(["1d","3d","5d","10d"],
-                    key=lambda h: abs(
-                        (target_dt - (datetime.fromisoformat(trade["signal_ts"].replace("Z","+00:00"))
-                         + timedelta(days={"1d":2,"3d":5,"5d":8,"10d":15}[h]))).total_seconds()
-                    )),
-                None,
-            )
+            # Mock accepts earliest_allowed kwarg (added for look-ahead bias protection)
+            def _mock_price(ticker, target_dt, tolerance=2, earliest_allowed=None):
+                signal_dt = datetime.fromisoformat(trade["signal_ts"].replace("Z", "+00:00"))
+                offsets   = {"1d": 2, "3d": 5, "5d": 8, "10d": 15}
+                prices    = {"1d": 105.0, "3d": 108.0, "5d": 110.0, "10d": 115.0}
+                horizon   = min(offsets, key=lambda h: abs(
+                    (target_dt - (signal_dt + timedelta(days=offsets[h]))).total_seconds()
+                ))
+                return prices.get(horizon)
+            mock_fetch.side_effect = _mock_price
 
             updated = evaluate_trade(trade)
 

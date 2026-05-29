@@ -118,8 +118,8 @@ tests/test_alerting.py             69  ✓
 tests/test_yahoo_client.py         19  ✓
 tests/test_validation_runner.py    36  ✓
 tests/test_catalyst_classifier.py  85  ✓
-tests/test_paper_trading.py        41  ✓
-TOTAAL                            780  ✓  (geen netwerk vereist)
+tests/test_paper_trading.py        44  ✓
+TOTAAL                            783  ✓  (geen netwerk vereist)
 ```
 
 ---
@@ -181,7 +181,7 @@ MOMENTUM_DEBUG=1 uvicorn backend.app:app --reload --port 8000
 Lees dit bestand. Daarna kun je direct bouwen. Vraag altijd:
 1. "Welke versie bouwen we?" → antwoord geeft de richting
 2. "Zijn er open action items?" → check DECISIONS.md voor recente D-XXX
-3. "Welke tests mogen niet breken?" → alle 780
+3. "Welke tests mogen niet breken?" → alle 783
 
 Als er twijfel is over architectuurkeuzes: **DECISIONS.md is de tiebreaker.**
 Als er twijfel is over wat het systeem doet: **OPERATING_MANUAL.md is de referentie.**
