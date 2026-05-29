@@ -1,133 +1,214 @@
 {
   "_meta": {
-    "description": "Curated validation tickers voor engine confidence calibratie. Dekt alle sectoren, marktcaps en momentum fases. NIET voor live alerting — alleen voor validation_runner.py.",
-    "version": "v1.0",
+    "description": "Momentum Validation Universe v1.0 — vaste universe voor paper trading validatie. Stabiel tot 2026-06-29. Zie research/MOMENTUM_VALIDATION_UNIVERSE.md voor volledige rationale.",
+    "version": "v2.0",
     "created": "2026-05-29",
-    "purpose": "Evalueer engine-gedrag over echte tickers vóór UI-werk. Dekt: HOT sectoren, DORMANT sectoren, micro/large cap, SKIP-candidates, BLOCKED-candidates.",
-    "update_note": "Voeg tickers toe per sector. Verwijder nooit — markeer als 'active: false' bij delisting."
+    "frozen_until": "2026-06-29",
+    "purpose": "Dagelijkse validatierun via validation_runner.py en paper_trade_report.py. Engine kiest signalen — dit document bepaalt alleen welke tickers worden aangeboden.",
+    "update_rule": "Geen wijzigingen tijdens validatieperiode. Uitzonderingen: delisting, nieuw SEC-onderzoek, afgeronde overname. Markeer dan active: false — verwijder nooit."
   },
   "groups": [
     {
       "id": "ai_infra",
       "label": "AI Infrastructure",
       "sector_heat": 95,
-      "rationale": "Fase 1 — bottleneck plays, hoogste regime-prioriteit",
+      "universe": "CORE",
+      "rationale": "Fase 1 — GPU, memory, networking bottlenecks. Hoogste regime-prioriteit.",
       "tickers": [
-        { "ticker": "NVDA",  "cap": "LARGE", "note": "GPU monopolie — benchmark voor engine" },
-        { "ticker": "MU",    "cap": "LARGE", "note": "HBM/DRAM schaarste play" },
-        { "ticker": "AVGO",  "cap": "LARGE", "note": "Custom AI chips + networking" },
-        { "ticker": "CRDO",  "cap": "MID",   "note": "Optische networking bottleneck" },
-        { "ticker": "ANET",  "cap": "LARGE", "note": "Datacenter switching — hyperscaler klant" },
-        { "ticker": "CIEN",  "cap": "MID",   "note": "Optische infra — sympathy CRDO" }
-      ]
-    },
-    {
-      "id": "ai_software",
-      "label": "AI Software / Orchestration",
-      "sector_heat": 78,
-      "rationale": "Fase 2 — enterprise AI ROI, workflow lock-in",
-      "tickers": [
-        { "ticker": "SNOW",  "cap": "LARGE", "note": "+34% AH na beat — AI consumption inflection" },
-        { "ticker": "DDOG",  "cap": "LARGE", "note": "AI observability platform" },
-        { "ticker": "NOW",   "cap": "LARGE", "note": "Enterprise workflow AI" },
-        { "ticker": "ORCL",  "cap": "LARGE", "note": "Cloud + AI database incumbent" },
-        { "ticker": "HUBS",  "cap": "LARGE", "note": "CRM/marketing AI — sympathy SNOW" }
-      ]
-    },
-    {
-      "id": "ai_pc",
-      "label": "AI PC / Edge",
-      "sector_heat": 85,
-      "rationale": "Fase 2 — incumbent layer, PC refresh cycle",
-      "tickers": [
-        { "ticker": "HPQ",   "cap": "LARGE", "note": "EPS +21% beat — AI PC refresh bevestigd" },
-        { "ticker": "DELL",  "cap": "LARGE", "note": "AI server + PC — dual thesis" },
-        { "ticker": "MSFT",  "cap": "LARGE", "note": "Copilot + Azure — anchor naam" }
+        { "ticker": "NVDA",  "cap": "LARGE", "catalyst_freq": "HIGH",   "volatility": "MEDIUM",    "note": "GPU-monopolie — engine benchmark. Verwacht BUY_MODERATE bij volume." },
+        { "ticker": "MU",    "cap": "LARGE", "catalyst_freq": "HIGH",   "volatility": "MEDIUM",    "note": "HBM/DRAM pricing power — eigen quarterly catalyst." },
+        { "ticker": "AVBO",  "cap": "LARGE", "catalyst_freq": "HIGH",   "volatility": "MEDIUM",    "note": "Custom AI chips + networking. Dual thesis." },
+        { "ticker": "CRDO",  "cap": "MID",   "catalyst_freq": "MEDIUM", "volatility": "HIGH",      "note": "Optische networking bottleneck — pure-play 800G/1.6T leader." },
+        { "ticker": "VRT",   "cap": "LARGE", "catalyst_freq": "HIGH",   "volatility": "MEDIUM",    "note": "Datacenter cooling/power infra — directe AI capex beneficiary." }
       ]
     },
     {
       "id": "quantum",
       "label": "Quantum Computing",
       "sector_heat": 92,
-      "rationale": "Fase 3 — early discovery, hoge volatiliteit",
+      "universe": "CORE",
+      "rationale": "Fase 3 — early discovery. Leader/sympathy verdeling valideert catalyst-source classificatie.",
       "tickers": [
-        { "ticker": "IONQ",  "cap": "SMALL", "note": "Marktleider quantum hardware" },
-        { "ticker": "QBTS",  "cap": "MICRO", "note": "Sympathy play — low float" },
-        { "ticker": "RGTI",  "cap": "MICRO", "note": "Photonics-based qubit — speculatief" },
-        { "ticker": "QUBT",  "cap": "MICRO", "note": "Quantum software — zeer speculatief" }
+        { "ticker": "IONQ",  "cap": "SMALL", "catalyst_freq": "HIGH",   "volatility": "HIGH",      "note": "Sector-leader quantum hardware — OWN catalyst referentie." },
+        { "ticker": "QBTS",  "cap": "MICRO", "catalyst_freq": "MEDIUM", "volatility": "VERY_HIGH", "note": "Sympathy play IONQ — valideert SYMPATHY catalyst-source detectie." },
+        { "ticker": "RGTI",  "cap": "MICRO", "catalyst_freq": "MEDIUM", "volatility": "HIGH",      "note": "Photonics qubit — eigen technologie, meer OWN nieuws dan QBTS." },
+        { "ticker": "QUBT",  "cap": "MICRO", "catalyst_freq": "LOW",    "volatility": "HIGH",      "note": "Quantum software — verwacht SKIP via combinatieregel (NONE + momentum<50)." }
+      ]
+    },
+    {
+      "id": "space",
+      "label": "Space / New Space",
+      "sector_heat": 75,
+      "universe": "CORE",
+      "rationale": "Fase 3 — contract-gedreven catalysts. Nieuw in v2.0 — ontbrak volledig in v1.0.",
+      "tickers": [
+        { "ticker": "RKLB",  "cap": "SMALL", "catalyst_freq": "HIGH",   "volatility": "HIGH",      "note": "Rocket Lab — launch manifest = voorspelbare OWN catalysts. Sector-leader." },
+        { "ticker": "ASTS",  "cap": "SMALL", "catalyst_freq": "HIGH",   "volatility": "VERY_HIGH", "note": "AST SpaceMobile — satellite deals, snelle nieuwsflow. Valideert STRONG catalyst." },
+        { "ticker": "LUNR",  "cap": "SMALL", "catalyst_freq": "MEDIUM", "volatility": "HIGH",      "note": "Intuitive Machines — NASA mijlpalen als primaire catalyst. Missie-gedreven." }
       ]
     },
     {
       "id": "drones_defense",
-      "label": "Drones / Defense",
+      "label": "Defense / Drones",
       "sector_heat": 98,
-      "rationale": "Fase 3 — Pentagon equity deals, explosief momentum",
+      "universe": "CORE",
+      "rationale": "Fase 3 — Pentagon equity deals, explosief momentum. Uitgebreid van 4 naar 5 in v2.0.",
       "tickers": [
-        { "ticker": "KTOS",  "cap": "MID",   "note": "Drone + autonome systemen" },
-        { "ticker": "RCAT",  "cap": "SMALL", "note": "Drone carrier ETF proxy" },
-        { "ticker": "AXON",  "cap": "LARGE", "note": "Defense tech — AI law enforcement" },
-        { "ticker": "PLTR",  "cap": "LARGE", "note": "Defense AI data platform" }
-      ]
-    },
-    {
-      "id": "power_energy",
-      "label": "Power / Energy",
-      "sector_heat": 55,
-      "rationale": "Fase 4 — sluimerend, Hormuz hedge context",
-      "tickers": [
-        { "ticker": "GEV",   "cap": "LARGE", "note": "Grid infra — AI power demand" },
-        { "ticker": "VST",   "cap": "LARGE", "note": "Power producer — datacenter contracten" },
-        { "ticker": "CEG",   "cap": "LARGE", "note": "Nuclear — AI clean energy" },
-        { "ticker": "CCJ",   "cap": "LARGE", "note": "Uranium — Hormuz hedge" }
+        { "ticker": "UMAC",  "cap": "MICRO", "catalyst_freq": "HIGH",   "volatility": "VERY_HIGH", "note": "Pure-play drone components — Pentagon nieuws. Sector-leader qua newsflow." },
+        { "ticker": "RCAT",  "cap": "SMALL", "catalyst_freq": "MEDIUM", "volatility": "HIGH",      "note": "Drone carrier/integrator — valideert OWN vs SECTOR onderscheid in defense." },
+        { "ticker": "KTOS",  "cap": "MID",   "catalyst_freq": "MEDIUM", "volatility": "MEDIUM",    "note": "Autonome systemen — grotere cap in zelfde sector, lagere volatiliteit." },
+        { "ticker": "PLTR",  "cap": "LARGE", "catalyst_freq": "MEDIUM", "volatility": "MEDIUM",    "note": "Defense AI data platform — grote float drukt float_score. Verwacht BUY_SMALL." },
+        { "ticker": "AXON",  "cap": "LARGE", "catalyst_freq": "MEDIUM", "volatility": "MEDIUM",    "note": "AI law enforcement tech — eigen kwartaalcatalyst onafhankelijk van Pentagon." }
       ]
     },
     {
       "id": "cybersecurity",
       "label": "Cybersecurity",
       "sector_heat": 62,
-      "rationale": "Fase 2 — stabiel, structureel — verwacht WATCH/BUY_SMALL",
+      "universe": "CORE",
+      "rationale": "Fase 2 — stabiel, structureel. Uitgebreid met S (SentinelOne) in v2.0.",
       "tickers": [
-        { "ticker": "PANW",  "cap": "LARGE", "note": "Marktleider — verwacht WATCH door hoge koers" },
-        { "ticker": "CRWD",  "cap": "LARGE", "note": "Cloud-native security" },
-        { "ticker": "FTNT",  "cap": "LARGE", "note": "Network security incumbent" },
-        { "ticker": "ZS",    "cap": "LARGE", "note": "Zero-trust cloud security" }
+        { "ticker": "CRWD",  "cap": "LARGE", "catalyst_freq": "MEDIUM", "volatility": "MEDIUM",    "note": "Cloud-native sector-leader — baseline voor cyber sector scores." },
+        { "ticker": "PANW",  "cap": "LARGE", "catalyst_freq": "MEDIUM", "volatility": "LOW",       "note": "Marktleider — verwacht WATCH door grote cap/lage vol. Controle voor engine." },
+        { "ticker": "S",     "cap": "MID",   "catalyst_freq": "MEDIUM", "volatility": "MEDIUM",    "note": "SentinelOne — snelste omzetgroei. Hogere scores dan PANW verwacht." },
+        { "ticker": "ZS",    "cap": "LARGE", "catalyst_freq": "MEDIUM", "volatility": "MEDIUM",    "note": "Zero-trust leader — solide kwartaalcatalysts." },
+        { "ticker": "FTNT",  "cap": "LARGE", "catalyst_freq": "MEDIUM", "volatility": "LOW",       "note": "Network security incumbent — stabiel, langzame beweger. Verwacht WATCH." }
       ]
     },
     {
-      "id": "large_cap_anchor",
-      "label": "Large Cap Anchor",
-      "sector_heat": 70,
-      "rationale": "Benchmark namen — verwacht lagere scores door size en lage volatiliteit",
+      "id": "robotics",
+      "label": "Robotics / Automation",
+      "sector_heat": 58,
+      "universe": "CORE",
+      "rationale": "Fase 2-3 — Nieuw in v2.0. Ontbrak volledig in v1.0.",
       "tickers": [
-        { "ticker": "GOOGL", "cap": "LARGE", "note": "AI + cloud — eigen portfolio" },
-        { "ticker": "ASML",  "cap": "LARGE", "note": "EUV lithografie monopolie" },
-        { "ticker": "TSM",   "cap": "LARGE", "note": "Foundry monopolie" },
-        { "ticker": "AAPL",  "cap": "LARGE", "note": "AI PC optionaliteit — verwacht lage score" },
-        { "ticker": "META",  "cap": "LARGE", "note": "AI infra + Llama — verwacht matig" }
+        { "ticker": "ISRG",  "cap": "LARGE", "catalyst_freq": "MEDIUM", "volatility": "LOW",       "note": "Robotic surgery monopolie — stabiele kwartaalcatalysts. Verwacht BUY_SMALL bij beats." },
+        { "ticker": "TER",   "cap": "MID",   "catalyst_freq": "MEDIUM", "volatility": "MEDIUM",    "note": "Semiconductor test automation — AI chip cycle beneficiary. OWN catalysts." },
+        { "ticker": "BRZE",  "cap": "MID",   "catalyst_freq": "LOW",    "volatility": "MEDIUM",    "note": "Customer engagement automation + AI — langzamere nieuws. Verwacht WATCH." }
       ]
     },
     {
-      "id": "skip_candidates",
-      "label": "Skip / Control groep",
-      "sector_heat": 30,
-      "rationale": "Engine moet deze SKIPPEN of WATCHEN — valideer skip-logica",
+      "id": "healthcare_growth",
+      "label": "Healthcare Growth",
+      "sector_heat": 72,
+      "universe": "CORE",
+      "rationale": "Fase 2 — AI-gedreven gezondheidszorg. Nieuw in v2.0.",
       "tickers": [
-        { "ticker": "KO",    "cap": "LARGE", "note": "Consumer staples — geen momentum driver" },
-        { "ticker": "JNJ",   "cap": "LARGE", "note": "Pharma incumbent — verwacht SKIP" },
-        { "ticker": "WMT",   "cap": "LARGE", "note": "Retail — verwacht SKIP/WATCH" },
-        { "ticker": "GLD",   "cap": "LARGE", "note": "Gold ETF — geen catalyst mogelijk" }
+        { "ticker": "TEM",   "cap": "MID",   "catalyst_freq": "HIGH",   "volatility": "HIGH",      "note": "Tempus AI — AI healthcare platform. Partnership newsflow. Verwacht BUY_MODERATE." },
+        { "ticker": "HIMS",  "cap": "SMALL", "catalyst_freq": "HIGH",   "volatility": "HIGH",      "note": "Hims & Hers — telehealth/GLP-1 platform. Hoge omzetgroei." }
+      ]
+    },
+    {
+      "id": "control_group",
+      "label": "Control Group",
+      "sector_heat": 25,
+      "universe": "CORE",
+      "rationale": "Engine moet deze namen SKIPPEN of WATCHEN. Valideert skip-logica en combinatieregel.",
+      "tickers": [
+        { "ticker": "KO",    "cap": "LARGE", "catalyst_freq": "LOW",    "volatility": "LOW",       "note": "Consumer staples — geen momentum driver. Verwacht SKIP/WATCH." },
+        { "ticker": "JNJ",   "cap": "LARGE", "catalyst_freq": "LOW",    "volatility": "LOW",       "note": "Pharma incumbent — geen AI-thesis. Verwacht SKIP." },
+        { "ticker": "GLD",   "cap": "LARGE", "catalyst_freq": "NONE",   "volatility": "LOW",       "note": "Gold ETF — catalyst altijd NONE. Perfecte controle voor combinatieregel." }
+      ]
+    },
+    {
+      "id": "ai_software",
+      "label": "AI Software / Orchestration",
+      "sector_heat": 78,
+      "universe": "EXTENDED",
+      "rationale": "Fase 2 — enterprise AI ROI. Extended: wekelijks draaien.",
+      "tickers": [
+        { "ticker": "SNOW",  "cap": "LARGE", "catalyst_freq": "HIGH",   "volatility": "MEDIUM",    "note": "+34% AH na beat — valideert catalyst_source voor software names." },
+        { "ticker": "DDOG",  "cap": "LARGE", "catalyst_freq": "MEDIUM", "volatility": "MEDIUM",    "note": "AI observability platform. Eigen portfolio naam." },
+        { "ticker": "NOW",   "cap": "LARGE", "catalyst_freq": "MEDIUM", "volatility": "LOW",       "note": "Enterprise workflow AI — hoge P/E valideert skip bij overwaardering." },
+        { "ticker": "ORCL",  "cap": "LARGE", "catalyst_freq": "MEDIUM", "volatility": "LOW",       "note": "Cloud + AI database — sympathy play AI software sector." },
+        { "ticker": "HUBS",  "cap": "LARGE", "catalyst_freq": "LOW",    "volatility": "MEDIUM",    "note": "CRM/marketing AI — sympathy SNOW." }
+      ]
+    },
+    {
+      "id": "ai_pc",
+      "label": "AI PC / Edge",
+      "sector_heat": 82,
+      "universe": "EXTENDED",
+      "rationale": "Fase 2 — Incumbent layer. Extended: wekelijks.",
+      "tickers": [
+        { "ticker": "HPQ",   "cap": "LARGE", "catalyst_freq": "MEDIUM", "volatility": "MEDIUM",    "note": "AI PC refresh bevestigd. Incumbent Layer play." },
+        { "ticker": "DELL",  "cap": "LARGE", "catalyst_freq": "MEDIUM", "volatility": "MEDIUM",    "note": "AI server + PC dual thesis." },
+        { "ticker": "MSFT",  "cap": "LARGE", "catalyst_freq": "MEDIUM", "volatility": "LOW",       "note": "Copilot + Azure — mega-cap anchor. Verwacht WATCH." }
+      ]
+    },
+    {
+      "id": "power_energy",
+      "label": "Power / Energy",
+      "sector_heat": 55,
+      "universe": "EXTENDED",
+      "rationale": "Fase 4 — Hormuz hedge + AI power demand. Extended.",
+      "tickers": [
+        { "ticker": "GEV",   "cap": "LARGE", "catalyst_freq": "MEDIUM", "volatility": "MEDIUM",    "note": "Grid infra — AI power demand. Eigen portfolio naam." },
+        { "ticker": "VST",   "cap": "LARGE", "catalyst_freq": "MEDIUM", "volatility": "MEDIUM",    "note": "Power producer — datacenter contracten." },
+        { "ticker": "CEG",   "cap": "LARGE", "catalyst_freq": "LOW",    "volatility": "LOW",       "note": "Nuclear clean energy — AI datacenter contracten." },
+        { "ticker": "CCJ",   "cap": "LARGE", "catalyst_freq": "LOW",    "volatility": "MEDIUM",    "note": "Uranium — Hormuz hedge." }
+      ]
+    },
+    {
+      "id": "drones_extended",
+      "label": "Defense / Drones — Extended",
+      "sector_heat": 75,
+      "universe": "EXTENDED",
+      "rationale": "eVTOL namen — pre-revenue maar institutioneel. Extended: wekelijks.",
+      "tickers": [
+        { "ticker": "ACHR",  "cap": "SMALL", "catalyst_freq": "MEDIUM", "volatility": "HIGH",      "note": "Archer Aviation — FAA certificering milestones. Pre-revenue." },
+        { "ticker": "JOBY",  "cap": "SMALL", "catalyst_freq": "LOW",    "volatility": "MEDIUM",    "note": "Joby Aviation — eVTOL leader. Sympathy ACHR. Lagere catalyst freq." }
+      ]
+    },
+    {
+      "id": "datacenter_networking",
+      "label": "Data Center / Networking",
+      "sector_heat": 65,
+      "universe": "EXTENDED",
+      "rationale": "DC-infra buiten AI infra sector. Extended.",
+      "tickers": [
+        { "ticker": "EQIX",  "cap": "LARGE", "catalyst_freq": "LOW",    "volatility": "LOW",       "note": "Colocation REIT — laag signal potentieel. Representeert DC-infra volledig." }
+      ]
+    },
+    {
+      "id": "large_cap_anchors",
+      "label": "Large Cap Anchors",
+      "sector_heat": 68,
+      "universe": "EXTENDED",
+      "rationale": "Benchmark namen — verwacht lagere scores door size en lage volatiliteit. Extended.",
+      "tickers": [
+        { "ticker": "GOOGL", "cap": "LARGE", "catalyst_freq": "MEDIUM", "volatility": "LOW",       "note": "AI + cloud anchor. Eigen portfolio naam." },
+        { "ticker": "ASML",  "cap": "LARGE", "catalyst_freq": "MEDIUM", "volatility": "LOW",       "note": "EUV lithografie monopolie — Europese naam." },
+        { "ticker": "TSM",   "cap": "LARGE", "catalyst_freq": "MEDIUM", "volatility": "LOW",       "note": "Foundry monopolie — geen standaard kwartaalcatalysts." },
+        { "ticker": "AAPL",  "cap": "LARGE", "catalyst_freq": "LOW",    "volatility": "LOW",       "note": "AI PC optionaliteit — verwacht lage score." },
+        { "ticker": "META",  "cap": "LARGE", "catalyst_freq": "MEDIUM", "volatility": "LOW",       "note": "AI infra + Llama — verwacht matig." }
+      ]
+    },
+    {
+      "id": "control_extended",
+      "label": "Control Group Extended",
+      "sector_heat": 20,
+      "universe": "EXTENDED",
+      "rationale": "Uitgebreide controle groep — vergelijking met core control.",
+      "tickers": [
+        { "ticker": "WMT",   "cap": "LARGE", "catalyst_freq": "LOW",    "volatility": "LOW",       "note": "Retail incumbent — verwacht SKIP/WATCH." }
       ]
     }
   ],
-  "total_tickers": 40,
-  "expected_distribution": {
-    "note": "Ruwe verwachting op basis van sector heat en marktcap — valideer tegen engine output",
-    "BUY_MAX":      "2-4  (quantum micro caps bij hoge dag-moves)",
-    "BUY_STRONG":   "4-7  (AI infra + drones sector leaders)",
-    "BUY_MODERATE": "6-10 (AI software + AI PC + power)",
-    "BUY_SMALL":    "5-8  (cybersecurity + large cap anchors)",
-    "WATCH":        "8-12 (large caps, stabiele namen)",
-    "SKIP":         "4-6  (control groep + geen catalyst)",
-    "BLOCKED":      "0-1  (SEC/CFD — hangt af van live data)"
+  "summary": {
+    "core_tickers": 30,
+    "extended_tickers": 23,
+    "total_tickers": 53,
+    "frozen_until": "2026-06-29",
+    "excluded_with_reason": {
+      "SMCI": "Actief SEC/boekhoudingsprobleem — Spelregel 3 veto",
+      "SOUN": "Pre-earnings run >15% — Spelregel 8; apart testen indien gewenst",
+      "APP":  "SEC-onderzoek + insider selling >$50M — Spelregel 3 veto",
+      "CRWV": "Beperkte Finnhub-dekking voor volledig kwartaalhistorie",
+      "NBIS": "Beperkte omzethistorie, minder liquide"
+    },
+    "expected_daily_buy_signals": "8-15 uit core universe van 30",
+    "expected_weeks_to_30_complete_trades": "2-3 weken",
+    "expected_weeks_to_50_complete_trades": "4-5 weken"
   }
 }
