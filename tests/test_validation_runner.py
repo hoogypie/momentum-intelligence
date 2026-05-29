@@ -342,7 +342,7 @@ class TestWriteOutputs:
             _, csv_path = _write_outputs(
                 self._make_results(1), {"run_timestamp": "20260529_120000"}, "20260529_120000"
             )
-        with open(csv_path) as f:
+        with open(csv_path, encoding="utf-8-sig") as f:
             reader = csv.DictReader(f)
             cols = reader.fieldnames
         for col in ["ticker", "decision", "momentum_score", "top_reasons"]:
@@ -359,7 +359,7 @@ class TestWriteOutputs:
             _, csv_path = _write_outputs(
                 results, {"run_timestamp": "20260529_120000"}, "20260529_120000"
             )
-        with open(csv_path) as f:
+        with open(csv_path, encoding="utf-8-sig") as f:
             rows = list(csv.DictReader(f))
         scores = [float(r["momentum_score"]) for r in rows]
         assert scores == sorted(scores, reverse=True)
@@ -375,7 +375,7 @@ class TestWriteOutputs:
             _, csv_path = _write_outputs(
                 mixed, {"run_timestamp": "20260529_120000"}, "20260529_120000"
             )
-        with open(csv_path) as f:
+        with open(csv_path, encoding="utf-8-sig") as f:
             rows = list(csv.DictReader(f))
         assert rows[-1]["decision"] == "ERROR"
 

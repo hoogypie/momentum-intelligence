@@ -272,6 +272,33 @@ _CSV_COLUMNS = [
     "top_reasons", "summary",
 ]
 
+# ── Unicode sanitizer ────────────────────────────────────────────────────────
+
+_UNICODE_MAP = {
+    "‑": "-",   # non-breaking hyphen
+    "–": "-",   # en dash
+    "—": "-",   # em dash
+    "‘": "'",   # left single quote
+    "’": "'",   # right single quote
+    "“": '"',  # left double quote
+    "”": '"',  # right double quote
+    "…": "...", # ellipsis
+    " ": " ",   # non-breaking space
+}
+
+def _sanitize(value: object) -> object:
+    """Vervangt problematische Unicode-tekens in strings. Andere typen ongewijzigd."""
+    if not isinstance(value, str):
+        return value
+    for char, replacement in _UNICODE_MAP.items():
+        value = value.replace(char, replacement)
+    return value
+
+def _sanitize_result(result: dict) -> dict:
+    """Sanitized kopie van een resultaat-dict."""
+    return {k: _sanitize(v) for k, v in result.items()}
+
+
 def _write_outputs(
     results:    list[dict],
     metadata:   dict,
@@ -284,27 +311,29 @@ def _write_outputs(
     json_path = os.path.join(_OUTPUT_DIR, f"{base}.json")
     csv_path  = os.path.join(_OUTPUT_DIR, f"{base}.csv")
 
-    # JSON — volledig, inclusief metadata
+    # JSON — volledig, inclusief metadata, expliciete UTF-8
     payload = {
         "meta":    metadata,
         "results": results,
     }
-    with open(json_path, "w") as f:
-        json.dump(payload, f, indent=2, default=str)
+    with open(json_path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2, default=str, ensure_ascii=False)
 
-    # CSV — gesorteerd: errors last, dan op momentum score desc
+    # CSV — gesorteerd, gesanitized, expliciete UTF-8
     sorted_results = sorted(
         results,
         key=lambda r: (r["status"] != "ok", -r["momentum_score"]),
     )
-    with open(csv_path, "w", newline="") as f:
+    sanitized = [_sanitize_result(r) for r in sorted_results]
+    with open(csv_path, "w", newline="", encoding="utf-8-sig") as f:
+        # utf-8-sig voegt BOM toe zodat Excel het correct opent op Windows
         writer = csv.DictWriter(
             f,
             fieldnames=_CSV_COLUMNS,
             extrasaction="ignore",
         )
         writer.writeheader()
-        writer.writerows(sorted_results)
+        writer.writerows(sanitized)
 
     return json_path, csv_path
 
