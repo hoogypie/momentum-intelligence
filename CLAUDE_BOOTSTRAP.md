@@ -1,6 +1,6 @@
 # CLAUDE BOOTSTRAP — MOMENTUM INTELLIGENCE
 > Lees dit bestand EERST. Dit is het enige bestand dat je nodig hebt om te beginnen.
-> Versie: v2.12 | Igor × Claude | 29 mei 2026
+> Versie: v2.13 | Igor × Claude | 29 mei 2026
 
 ---
 
@@ -17,7 +17,7 @@ catalyst quality en relative strength.
 
 ## WAAR ZIJN WE?
 
-**Huidig versieniveau: v2.12**
+**Huidig versieniveau: v2.13**
 
 ```
 v2.0  FastAPI backend + Yahoo Finance
@@ -32,7 +32,8 @@ v2.8  Documentation & Operating Manual
 v2.9  Alerting & Watchlist Layer
 v2.10 Yahoo Fetch Compatibility Fix
 v2.11 Validation Layer
-v2.12 Catalyst Intelligence Layer  ← HUIDIGE VERSIE
+v2.12 Catalyst Intelligence Layer
+v2.13 Paper Trading Validation Framework  ← HUIDIGE VERSIE
 ```
 
 ---
@@ -117,7 +118,8 @@ tests/test_alerting.py             69  ✓
 tests/test_yahoo_client.py         19  ✓
 tests/test_validation_runner.py    36  ✓
 tests/test_catalyst_classifier.py  85  ✓
-TOTAAL                            739  ✓  (geen netwerk vereist)
+tests/test_paper_trading.py        41  ✓
+TOTAAL                            780  ✓  (geen netwerk vereist)
 ```
 
 ---
@@ -179,12 +181,12 @@ MOMENTUM_DEBUG=1 uvicorn backend.app:app --reload --port 8000
 Lees dit bestand. Daarna kun je direct bouwen. Vraag altijd:
 1. "Welke versie bouwen we?" → antwoord geeft de richting
 2. "Zijn er open action items?" → check DECISIONS.md voor recente D-XXX
-3. "Welke tests mogen niet breken?" → alle 739
+3. "Welke tests mogen niet breken?" → alle 780
 
 Als er twijfel is over architectuurkeuzes: **DECISIONS.md is de tiebreaker.**
 Als er twijfel is over wat het systeem doet: **OPERATING_MANUAL.md is de referentie.**
 
 ---
 
-*Momentum Intelligence v2.12 · Igor × Claude · 29 mei 2026*
+*Momentum Intelligence v2.13 · Igor × Claude · 29 mei 2026*
 *Geen formeel beleggingsadvies (Wft)*

@@ -4,6 +4,85 @@
 
 ---
 
+## [v2.13] — 29 mei 2026 — Paper Trading Validation Framework
+
+**Context:** Engine scoort correct en catalyst intelligence werkt. Vóór
+score-kalibratie is bewijs nodig: presteren BUY-signalen beter dan willekeurig?
+v2.13 bouwt de tooling om dat systematisch te meten.
+
+**Kernprincipe:** Evidence before calibration.
+Geen scoring-wijzigingen, geen threshold-aanpassingen.
+Alleen meten wat de engine al doet.
+
+**Nieuwe bestanden:**
+
+`storage/paper_trade_store.py` (nieuw)
+- `PaperTrade` dataclass: ticker, timestamp, score, catalyst, phase, decision,
+  entry_price, returns per horizon (1d/3d/5d/10d), status (OPEN/PARTIAL/COMPLETE)
+- `save_trade_from_result()`: convenience wrapper, retourneert None voor niet-BUY
+- `record_trade()`: idempotent opslaan via trade_id
+- `update_trade_outcomes()`: vult prijs- en return-velden in, herberekent status
+- `load_trades()`, `load_open_trades()`, `load_complete_trades()`: filters op
+  ticker, decision en status
+- Globale index: `storage/data/paper_trades/_index.jsonl`
+- Nooit een exception — alle fouten worden gelogd
+
+`storage/paper_trade_evaluator.py` (nieuw)
+- `evaluate_trade()`: haalt ontbrekende prijzen op via `yfinance.history()`
+  voor de vier horizons, slaat over als horizon nog niet bereikbaar is
+- `evaluate_all_open()`: batch-evaluatie, retourneert samenvatting
+- Tolerantievenster ±2 kalenderdagen per horizon
+- Idempotent: al ingevulde horizons worden niet overschreven
+
+`scripts/paper_trade_report.py` (nieuw)
+- Drie modi: `record`, `evaluate`, `report`
+- `record`: scoort tickers live, slaat BUY-signalen op
+- `evaluate`: haalt toekomstige marktprijzen op
+- `report`: toont win rate, gem. rendement, mediaan per horizon (1d/3d/5d/10d),
+  uitsplitsing per beslissing (BUY_SMALL/MODERATE/STRONG),
+  uitsplitsing per catalyst type en source
+
+`scripts/validation_runner.py` (update)
+- `_analyze_one()` heeft nu `paper_trade=True` parameter
+- BUY-signalen worden automatisch opgeslagen bij elke validation run
+- `paper_trade=False` voor dry runs zonder opslag
+
+**Tests:**
+
+`tests/test_paper_trading.py` (nieuw — 41 tests, 7 klassen)
+- `TestPaperTradeMakeId`         — trade ID formaat en uniciteit
+- `TestPaperTradeStore`          — opslaan, laden, idempotentie, never-raises
+- `TestPaperTradeFilters`        — filters decision/status/ticker
+- `TestUpdateTradeOutcomes`      — return berekening, status-overgang
+- `TestPaperTradeEvaluator`      — price fetching, horizon-logica, fallback
+- `TestPaperTradeStatistics`     — win rate, mediaan, threshold
+- `TestValidationRunnerHook`     — paper_trade param, BUY recorded, WATCH niet
+
+**Test resultaten:**
+```
+tests/test_scoring.py              70  ✓
+tests/test_backend.py              36  ✓
+tests/test_data_stability.py       55  ✓
+tests/test_cache.py                74  ✓
+tests/test_signals.py              57  ✓
+tests/test_history.py              63  ✓
+tests/test_replay.py               60  ✓
+tests/test_evaluation.py           64  ✓
+tests/test_dev_experience.py       51  ✓
+tests/test_alerting.py             69  ✓
+tests/test_yahoo_client.py         19  ✓
+tests/test_validation_runner.py    36  ✓
+tests/test_catalyst_classifier.py  85  ✓
+tests/test_paper_trading.py        41  ✓
+TOTAAL                            780  ✓
+```
+
+**Breaking changes:** Geen.
+**Scoring changes:** Geen.
+**API contract:** Ongewijzigd.
+
+---
+
 ## [v2.12] — 29 mei 2026 — Catalyst Intelligence Layer
 
 **Context:** Validation (v2.11) bevestigde dat de engine conservatief scoort

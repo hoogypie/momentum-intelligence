@@ -100,10 +100,12 @@ def _analyze_one(
     ticker:        str,
     force_refresh: bool = False,
     persist:       bool = True,
+    paper_trade:   bool = True,
 ) -> dict:
     """
     Bouwt TickerInput en scoort één ticker.
     Retourneert een plat resultaat-dict. Gooit nooit een exception.
+    paper_trade=True: sla BUY-signalen op in paper_trade_store.
     """
     started_at = datetime.now(timezone.utc)
 
@@ -144,6 +146,38 @@ def _analyze_one(
 
         # Top reasons: combineer skip blocking_reasons en momentum breakdown
         top_reasons = _extract_top_reasons(result, quality)
+
+        # Paper trade: sla BUY-signalen op
+        if paper_trade and result.decision.value in ("BUY_SMALL", "BUY_MODERATE", "BUY_STRONG", "BUY_MAX"):
+            try:
+                from storage.paper_trade_store import save_trade_from_result
+                from data.assembler import _find_sector
+                sector   = _find_sector(ticker)
+                vol_ratio = (
+                    ticker_input.volume_today / ticker_input.avg_volume_20d
+                    if ticker_input.avg_volume_20d > 0 else 0.0
+                )
+                trade_id = save_trade_from_result(
+                    ticker          = ticker,
+                    decision        = result.decision.value,
+                    momentum_score  = result.momentum_score,
+                    skip_score      = result.skip_score,
+                    phase           = result.phase.value,
+                    sector_id       = sector.sector_id,
+                    sector_heat     = sector.heat,
+                    catalyst_type   = ticker_input.catalyst_type.value,
+                    catalyst_source = cat_source,
+                    catalyst_desc   = ticker_input.catalyst_description[:120],
+                    entry_price     = ticker_input.price,
+                    day_change_pct  = ticker_input.day_change_pct,
+                    volume_ratio    = round(vol_ratio, 2),
+                    premarket_pct   = ticker_input.premarket_pct,
+                    data_confidence = quality.confidence.value,
+                    is_partial_data = (quality.confidence.value == "PARTIAL"),
+                )
+                logger.debug("paper_trade opgeslagen: %s / %s", ticker, trade_id)
+            except Exception as pt_exc:
+                logger.debug("paper_trade opslaan mislukt voor %s: %s", ticker, pt_exc)
 
         return {
             "ticker":          ticker,
