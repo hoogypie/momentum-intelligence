@@ -43,6 +43,13 @@ _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
+# ── .env laden — FINNHUB_API_KEY en andere variabelen ────────────────────────
+try:
+    from dotenv import load_dotenv
+    load_dotenv(os.path.join(_REPO_ROOT, ".env"))
+except ImportError:
+    pass  # python-dotenv niet geïnstalleerd — env vars moeten handmatig gezet zijn
+
 from data.assembler import build_ticker_input
 from scoring.scoring_v1_2 import score_ticker
 
