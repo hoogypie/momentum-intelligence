@@ -1,0 +1,152 @@
+{
+  "_meta": {
+    "description": "Keyword-taxonomie voor catalyst classificatie. Update als nieuwe event-types opduiken. Gebruikt door data/catalyst_classifier.py.",
+    "version": "v1.0",
+    "last_updated": "2026-05-29",
+    "scoring_note": "Elke categorie heeft een gewicht (0-1). Meerdere keywords in één headline verhogen de score niet — de hoogste klasse wint. Recency modifier wordt toegepast door de classifier."
+  },
+
+  "catalyst_tiers": {
+    "STRONG": {
+      "weight": 1.0,
+      "description": "Fundamentele, kwantificeerbare positieve event. Directe impact op verwachtingen.",
+      "keywords": [
+        "earnings beat", "beats estimate", "beats estimates", "beats expectations",
+        "exceeds expectations", "record revenue", "record earnings", "record quarter",
+        "blowout quarter", "blowout earnings",
+        "guidance raised", "raises guidance", "raised guidance", "raised full-year",
+        "raised outlook", "raises outlook", "raises full year",
+        "revenue beat", "eps beat", "above consensus",
+        "contract awarded", "contract award", "awarded contract",
+        "government contract", "dod contract", "pentagon contract", "nato contract",
+        "billion-dollar contract", "multibillion contract", "awarded $",
+        "acquisition completed", "merger completed", "buyout completed",
+        "fda approval", "fda approved", "fda clearance", "clearance granted",
+        "authorized for", "approved by fda",
+        "buyback", "share repurchase", "repurchase program",
+        "dividend increase", "dividend raised", "special dividend",
+        "spin-off announced", "ipo priced",
+        "major order", "landmark deal", "breakthrough",
+        "record backlog", "record orders"
+      ]
+    },
+
+    "MODERATE": {
+      "weight": 0.6,
+      "description": "Positieve ontwikkeling zonder directe cijfers. Richting is duidelijk.",
+      "keywords": [
+        "upgrade", "upgraded to buy", "upgraded to outperform",
+        "outperform", "overweight", "strong buy",
+        "price target raised", "target price raised", "raises price target",
+        "partnership", "strategic partnership", "collaboration agreement",
+        "strategic alliance", "joint development",
+        "expansion", "geographic expansion", "capacity expansion",
+        "new product", "product launch", "launch announced", "new model",
+        "deal signed", "agreement signed", "letter of intent", "loi signed",
+        "quarterly results", "q1 results", "q2 results", "q3 results", "q4 results",
+        "revenue growth", "sales growth", "customer win", "new customer",
+        "significant order", "multi-year agreement",
+        "preliminary results", "revenue guidance"
+      ]
+    },
+
+    "WEAK": {
+      "weight": 0.2,
+      "description": "Nieuws aanwezig maar geen concrete catalyst. Intentie of hype.",
+      "keywords": [
+        "explores", "exploring", "considering", "evaluating",
+        "plans to", "intends to", "looking to",
+        "announces", "announcement", "appoints", "appointed",
+        "hires", "joins board", "new ceo", "management change",
+        "conference", "presentation", "investor day", "analyst day",
+        "webinar", "forum", "summit",
+        "update", "business update", "strategic update",
+        "initiative", "program launch", "pilot program"
+      ]
+    },
+
+    "NEGATIVE": {
+      "weight": 0.0,
+      "description": "Negatieve signalen. Worden als risk flags doorgegeven — verlagen score niet direct maar triggeren skip-logica.",
+      "keywords": [
+        "sec investigation", "securities fraud", "class action", "class-action",
+        "doj investigation", "subpoena", "sec charges", "fbi investigation",
+        "securities and exchange commission",
+        "lawsuit filed", "litigation", "legal action",
+        "fraud", "accounting irregularities", "restates", "restatement",
+        "bankruptcy", "chapter 11", "chapter 7", "default",
+        "delisted", "delisting notice", "nasdaq notice", "nyse notice",
+        "recall", "safety issue", "safety warning",
+        "downgrade", "downgraded to sell", "underperform", "underweight",
+        "cuts guidance", "guidance cut", "guidance reduced", "lowers guidance",
+        "revenue miss", "earnings miss", "below expectations", "misses estimate",
+        "worse than expected", "disappointing results",
+        "layoffs", "job cuts", "workforce reduction",
+        "ceo resigned", "cfo resigned", "executive departure"
+      ]
+    }
+  },
+
+  "momentum_type_signals": {
+    "_description": "Signalen die helpen onderscheiden of momentum van een EIGEN catalyst komt of van sector/sympathy beweging. Gebruikt naast sector-positie (leaders vs sympathy in sectors.json).",
+
+    "own_catalyst_signals": [
+      "reports", "reported", "announces earnings", "quarterly earnings",
+      "guidance", "outlook", "revenue", "eps", "per share",
+      "contract", "deal", "partnership", "agreement",
+      "fda", "approval", "approved", "merger", "acquisition",
+      "buyback", "dividend", "upgrade", "downgrade",
+      "management", "ceo", "cfo", "board"
+    ],
+
+    "sector_momentum_signals": [
+      "sector", "industry", "space", "theme", "trend",
+      "all ai", "all quantum", "all defense", "entire sector",
+      "sector rotation", "sector rally", "group rally"
+    ],
+
+    "sympathy_signals": [
+      "sympathy", "sympathy move", "sympathy play",
+      "peer", "peer group", "competitor rally",
+      "following", "riding", "in the wake of",
+      "after nvda", "after ionq", "after avgo",
+      "rises with", "climbs with", "gains with",
+      "spillover", "read-through", "halo effect"
+    ]
+  },
+
+  "recency_weights": {
+    "_description": "Ouderdom van het nieuwsartikel vermindert de catalyst score. Multiplier toegepast op raw score.",
+    "under_2h":    1.00,
+    "2h_to_6h":    0.90,
+    "6h_to_12h":   0.75,
+    "12h_to_24h":  0.60,
+    "24h_to_48h":  0.40,
+    "over_48h":    0.20
+  },
+
+  "source_tiers": {
+    "_description": "Source betrouwbaarheid. Tier 1 = zwaarste gewicht. Gebruikt voor confidence scoring.",
+    "tier_1": [
+      "reuters", "bloomberg", "wall street journal", "wsj",
+      "financial times", "ft", "barron's", "barrons",
+      "cnbc", "marketwatch", "ap news", "associated press"
+    ],
+    "tier_2": [
+      "yahoo finance", "seeking alpha", "the motley fool",
+      "investing.com", "benzinga", "thestreet", "business insider",
+      "forbes", "fortune"
+    ],
+    "tier_3": [
+      "pr newswire", "business wire", "globenewswire",
+      "accesswire", "prnewswire", "globe newswire"
+    ]
+  },
+
+  "confidence_matrix": {
+    "_description": "Confidence = f(source_tier, recency, catalyst_strength). Tabel geeft HIGH/MEDIUM/LOW.",
+    "HIGH":   "Tier-1 bron + <6u oud + STRONG of MODERATE catalyst",
+    "MEDIUM": "Tier-2 bron of 6-24u oud of WEAK catalyst",
+    "LOW":    "Tier-3 bron of >24u oud of NONE catalyst"
+  }
+}

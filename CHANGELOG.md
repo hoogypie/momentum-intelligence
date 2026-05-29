@@ -4,6 +4,102 @@
 
 ---
 
+## [v2.12] — 29 mei 2026 — Catalyst Intelligence Layer
+
+**Context:** Validation (v2.11) bevestigde dat de engine conservatief scoort
+omdat catalyst altijd NONE is — niet omdat scoring kapot is. Oorzaak: de
+bestaande news_client.py had wel Finnhub-fetching maar een primitieve keyword-
+matcher zonder recency weighting, momentum-type onderscheid of confidence scoring.
+v2.12 bouwt een volwaardige catalyst-intelligentie laag.
+
+**Kernprincipe (D-005):**
+Data classificeert. Engine scoort. Nooit andersom.
+catalyst_classifier.py levert gestructureerde input — de score engine bepaalt
+hoeveel punten een catalyst waard is. Geen threshold-wijzigingen.
+
+**Nieuw onderscheid (Spelregel 27):**
+Drie momentum-typen worden nu structureel onderscheiden:
+- `OWN`      — ticker heeft een eigen, bedrijfsspecifieke catalyst (volle score)
+- `SECTOR`   — sectorbreed momentum, geen ticker-specifiek nieuws (≤ MODERATE)
+- `SYMPATHY` — ticker beweegt mee na een andere ticker (≤ WEAK)
+
+**Nieuwe bestanden:**
+
+`config/news_keywords.json` (nieuw)
+- Keyword-taxonomie in vier tiers: STRONG / MODERATE / WEAK / NEGATIVE
+- Per tier: gewicht (0-1), beschrijving, exhaustieve keyword-lijst
+- `momentum_type_signals`: OWN / SECTOR / SYMPATHY signalen
+- `recency_weights`: multipliers per ouderdomsband (0-48u)
+- `source_tiers`: tier-1/2/3 bronnen voor confidence scoring
+- `confidence_matrix`: HIGH/MEDIUM/LOW definitie
+
+`data/finnhub_client.py` (nieuw)
+- Pure data-fetching, geen classificatie
+- `FinnhubNewsItem` dataclass: headline, source, url, unix timestamp, sentiment
+- `fetch_company_news(ticker, hours)` — altijd lijst, nooit exception
+- `is_available()` — snelle key-check
+- Gesorteerd: nieuwste artikel eerst
+
+`data/catalyst_classifier.py` (nieuw)
+- Centrale intelligentielaag
+- `CatalystResult`: type, source (OWN/SECTOR/SYMPATHY), confidence, score,
+  top_headline, raw_headlines, negative_flags, news_available
+- Keyword matching via news_keywords.json
+- Recency multiplier: 1.0 (<2u) → 0.20 (>48u)
+- Source multiplier: Reuters=1.0, PR Newswire=0.65, onbekend=0.85
+- Source cap: sympathy-headlines ≤ WEAK, sector-headlines ≤ MODERATE
+- Confidence: HIGH/MEDIUM/LOW op basis van bron + leeftijd + tier
+- `classify_from_news_items()` — backward-compat wrapper voor legacy NewsItems
+
+`data/assembler.py` (v2.4 → v2.5)
+- Gebruikt `finnhub_client.fetch_company_news()` als primaire bron
+- Valt terug op legacy `news_client.get_news()` als Finnhub niet beschikbaar
+- `_run_catalyst_classification()`: twee-paden strategie
+- `_classify_catalyst()` shim behouden voor backward-compat (test_backend.py)
+- Debug-logging: catalyst type + source + confidence per ticker
+
+`scripts/validation_runner.py` (update)
+- Voegt `catalyst_source`, `catalyst_conf`, `top_headline`, `raw_headlines`
+  toe aan output (JSON + CSV)
+
+**Tests:**
+
+`tests/test_catalyst_classifier.py` (nieuw — 85 tests, 10 klassen)
+- `TestKeywordTierMatching`       — STRONG/MODERATE/WEAK/NEGATIVE herkenning
+- `TestRecencyWeighting`          — score daalt monotoon met ouderdom
+- `TestSourceMultiplier`          — Reuters > PR Newswire
+- `TestMomentumSourceDetection`   — OWN / SECTOR / SYMPATHY onderscheid
+- `TestSourceCap`                 — sympathy kan niet STRONG zijn
+- `TestCatalystConfidence`        — HIGH/MEDIUM/LOW logica
+- `TestClassifyFunction`          — end-to-end met FinnhubNewsItems
+- `TestClassifyEdgeCases`         — leeg, alleen negatief, nooit exception
+- `TestClassifyFromNewsItems`     — legacy backward-compat
+- `TestFinnhubClientParsing`      — parsing, error handling, never-raises
+
+**Test resultaten:**
+```
+tests/test_scoring.py              70  ✓
+tests/test_backend.py              36  ✓
+tests/test_data_stability.py       55  ✓
+tests/test_cache.py                74  ✓
+tests/test_signals.py              57  ✓
+tests/test_history.py              63  ✓
+tests/test_replay.py               60  ✓
+tests/test_evaluation.py           64  ✓
+tests/test_dev_experience.py       51  ✓
+tests/test_alerting.py             69  ✓
+tests/test_yahoo_client.py         19  ✓
+tests/test_validation_runner.py    36  ✓
+tests/test_catalyst_classifier.py  85  ✓
+TOTAAL                            739  ✓
+```
+
+**Breaking changes:** Geen.
+**Scoring changes:** Geen — alleen betere input.
+**API contract:** Ongewijzigd.
+
+---
+
 ## [v2.11] — 29 mei 2026 — Validation Layer
 
 **Context:** Live scoring werkt na de v2.10 Yahoo fix. Vóór UI-werk is

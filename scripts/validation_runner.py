@@ -104,6 +104,37 @@ def _analyze_one(
         ticker_input, quality = build_ticker_input(ticker, force_refresh=force_refresh)
         result = score_ticker(ticker_input)
 
+        # Catalyst source en headlines ophalen via classifier direct
+        # (assembler geeft deze niet terug via TickerInput — we lezen ze apart)
+        cat_source   = "UNKNOWN"
+        cat_conf     = "UNKNOWN"
+        raw_headlines: list[str] = []
+        try:
+            from data.finnhub_client      import fetch_company_news, is_available as finnhub_available
+            from data.catalyst_classifier import classify
+            from data.assembler           import _find_sector
+            sector = _find_sector(ticker)
+            if finnhub_available():
+                items = fetch_company_news(ticker, hours=48)
+            else:
+                from data.news_client import get_news
+                from data.catalyst_classifier import classify_from_news_items
+                legacy = get_news(ticker, hours=48)
+                cat_result_extra = classify_from_news_items(
+                    ticker, legacy, sector.leaders, sector.sympathy
+                )
+                cat_source     = cat_result_extra.catalyst_source.value
+                cat_conf       = cat_result_extra.confidence.value
+                raw_headlines  = cat_result_extra.raw_headlines[:5]
+                items          = []
+            if items:
+                cat_result_extra = classify(ticker, items, sector.leaders, sector.sympathy)
+                cat_source     = cat_result_extra.catalyst_source.value
+                cat_conf       = cat_result_extra.confidence.value
+                raw_headlines  = cat_result_extra.raw_headlines[:5]
+        except Exception as cat_exc:
+            logger.debug("validation_runner: catalyst enrichment mislukt voor %s: %s", ticker, cat_exc)
+
         # Top reasons: combineer skip blocking_reasons en momentum breakdown
         top_reasons = _extract_top_reasons(result, quality)
 
@@ -130,6 +161,11 @@ def _analyze_one(
             # Skip details
             "skip_blocked":    result.skip_detail.is_hard_blocked,
             "skip_reasons":    " | ".join(result.skip_detail.reasons[:3]),
+            # Catalyst intelligence (v2.5)
+            "catalyst_source": cat_source,
+            "catalyst_conf":   cat_conf,
+            "top_headline":    raw_headlines[0] if raw_headlines else "",
+            "raw_headlines":   " || ".join(raw_headlines),
             # Data kwaliteit
             "data_confidence": quality.confidence.value,
             "price_ok":        quality.price_available,
@@ -160,6 +196,8 @@ def _analyze_one(
             "m_premarket": 0.0, "m_rel_strength": 0.0, "m_social": 0.0,
             "m_float": 0.0, "social_capped": False,
             "skip_blocked": False, "skip_reasons": "",
+            "catalyst_source": "", "catalyst_conf": "", "top_headline": "",
+            "raw_headlines": "",
             "data_confidence": "MISSING",
             "price_ok": False, "volume_ok": False, "news_ok": False,
             "cache_hit": False, "fetch_error": str(exc),
@@ -221,6 +259,7 @@ _CSV_COLUMNS = [
     "phase", "market_cap_tier", "sizing_eur",
     "m_volume", "m_catalyst", "m_sector_heat", "m_premarket",
     "m_rel_strength", "m_social", "m_float",
+    "catalyst_source", "catalyst_conf", "top_headline",
     "skip_blocked", "skip_reasons",
     "data_confidence", "cache_hit", "fetch_error",
     "top_reasons", "summary",
