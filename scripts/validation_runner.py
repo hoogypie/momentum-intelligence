@@ -51,6 +51,7 @@ except ImportError:
     pass  # python-dotenv niet geïnstalleerd — env vars moeten handmatig gezet zijn
 
 from data.assembler import build_ticker_input
+from data.finnhub_client import reset_session_stats, format_session_stats
 from scoring.scoring_v1_2 import score_ticker
 
 logging.basicConfig(
@@ -450,6 +451,10 @@ def _print_report(results: list[dict], metadata: dict) -> None:
         print(f"    • {len(blocked)} HARD BLOCKED: "
               + ", ".join(r["ticker"] for r in blocked))
 
+    # Finnhub success rate
+    print()
+    print(format_session_stats(total_tickers=len(results)))
+
     print()
     print(f"  Gem. momentum score:  {sum(r['momentum_score'] for r in ok)/len(ok):.1f}" if ok else "")
     print(f"  Hoogste score:        {max((r['momentum_score'] for r in ok), default=0):.1f}")
@@ -503,6 +508,9 @@ def main() -> None:
         logger.info("No-persist: geen storage snapshots")
 
     print()
+
+    # Reset Finnhub statistieken voor deze run
+    reset_session_stats()
 
     # Analyse loop
     results     = []

@@ -591,3 +591,156 @@ class TestFinnhubClientParsing:
 
         timestamps = [i.published_unix for i in items]
         assert timestamps == sorted(timestamps, reverse=True)
+
+# ── TestFinnhubRetryAndStats ──────────────────────────────────────────────────
+
+class TestFinnhubRetryAndStats:
+    """Retry logica en sessie-statistieken."""
+
+    def setup_method(self):
+        """Reset stats voor elke test."""
+        from data.finnhub_client import reset_session_stats
+        reset_session_stats()
+
+    def test_timeout_incremented_on_readtimeout(self):
+        from data.finnhub_client import fetch_company_news, get_session_stats
+        import httpx
+        with patch("data.finnhub_client._FINNHUB_KEY", "sk-test"):
+            with patch("data.finnhub_client._do_fetch",
+                       side_effect=httpx.ReadTimeout("timed out")):
+                fetch_company_news("NVDA")
+        stats = get_session_stats()
+        assert stats["timeout"] == 1
+        assert stats["success"] == 0
+
+    def test_success_incremented_on_ok(self):
+        from data.finnhub_client import fetch_company_news, get_session_stats
+        with patch("data.finnhub_client._FINNHUB_KEY", "sk-test"):
+            with patch("data.finnhub_client._do_fetch", return_value=[]):
+                fetch_company_news("NVDA")
+        stats = get_session_stats()
+        assert stats["success"] == 1
+        assert stats["timeout"] == 0
+
+    def test_error_incremented_on_other_exception(self):
+        from data.finnhub_client import fetch_company_news, get_session_stats
+        with patch("data.finnhub_client._FINNHUB_KEY", "sk-test"):
+            with patch("data.finnhub_client._do_fetch",
+                       side_effect=ValueError("bad response")):
+                fetch_company_news("NVDA")
+        stats = get_session_stats()
+        assert stats["error"] == 1
+
+    def test_no_key_incremented_without_key(self):
+        from data.finnhub_client import fetch_company_news, get_session_stats
+        with patch("data.finnhub_client._FINNHUB_KEY", ""):
+            fetch_company_news("NVDA")
+        stats = get_session_stats()
+        assert stats["no_key"] == 1
+        assert stats["total"] == 1
+
+    def test_total_incremented_per_ticker(self):
+        from data.finnhub_client import fetch_company_news, get_session_stats
+        with patch("data.finnhub_client._FINNHUB_KEY", "sk-test"):
+            with patch("data.finnhub_client._do_fetch", return_value=[]):
+                fetch_company_news("NVDA")
+                fetch_company_news("MU")
+                fetch_company_news("IONQ")
+        assert get_session_stats()["total"] == 3
+
+    def test_reset_clears_all_counters(self):
+        from data.finnhub_client import fetch_company_news, get_session_stats, reset_session_stats
+        with patch("data.finnhub_client._FINNHUB_KEY", "sk-test"):
+            with patch("data.finnhub_client._do_fetch", return_value=[]):
+                fetch_company_news("NVDA")
+        assert get_session_stats()["total"] == 1
+        reset_session_stats()
+        stats = get_session_stats()
+        assert all(v == 0 for v in stats.values())
+
+    def test_format_session_stats_shows_success(self):
+        from data.finnhub_client import fetch_company_news, format_session_stats
+        with patch("data.finnhub_client._FINNHUB_KEY", "sk-test"):
+            with patch("data.finnhub_client._do_fetch", return_value=[]):
+                for _ in range(3):
+                    fetch_company_news("NVDA")
+        output = format_session_stats(total_tickers=5)
+        assert "3/5" in output
+        assert "succesvol" in output
+
+    def test_format_session_stats_shows_timeout(self):
+        import httpx
+        from data.finnhub_client import fetch_company_news, format_session_stats
+        with patch("data.finnhub_client._FINNHUB_KEY", "sk-test"):
+            with patch("data.finnhub_client._do_fetch",
+                       side_effect=httpx.ReadTimeout("timeout")):
+                fetch_company_news("NVDA")
+                fetch_company_news("MU")
+        output = format_session_stats(total_tickers=5)
+        assert "timeout" in output.lower()
+        assert "2/5" in output
+
+    def test_retry_succeeds_on_second_attempt(self):
+        """_do_fetch probeert opnieuw na een timeout — tweede poging slaagt."""
+        import httpx
+        from data.finnhub_client import _do_fetch
+        now_unix = int(__import__('datetime').datetime.now(__import__('datetime').timezone.utc).timestamp())
+        articles = [{"headline": "Test headline", "source": "Reuters",
+                     "datetime": now_unix, "id": 1, "summary": ""}]
+
+        call_count = {"n": 0}
+        def mock_get(*args, **kwargs):
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                raise httpx.ReadTimeout("first attempt timed out")
+            m = patch("httpx.get").__class__
+            resp = __import__('unittest.mock', fromlist=['MagicMock']).MagicMock()
+            resp.json.return_value = articles
+            resp.raise_for_status = lambda: None
+            return resp
+
+        with patch("data.finnhub_client._FINNHUB_KEY", "sk-test"):
+            with patch("data.finnhub_client.time.sleep"):  # snel zonder echte sleep
+                with patch("httpx.get", side_effect=mock_get):
+                    items = _do_fetch("NVDA", hours=48)
+
+        assert call_count["n"] == 2
+        assert len(items) == 1
+
+    def test_retry_exhausted_raises(self):
+        """Na _MAX_RETRIES pogingen gooit _do_fetch een exception."""
+        import httpx
+        from data.finnhub_client import _do_fetch, _MAX_RETRIES
+        call_count = {"n": 0}
+        def always_timeout(*a, **kw):
+            call_count["n"] += 1
+            raise httpx.ReadTimeout("always times out")
+
+        with patch("data.finnhub_client._FINNHUB_KEY", "sk-test"):
+            with patch("data.finnhub_client.time.sleep"):
+                with patch("httpx.get", side_effect=always_timeout):
+                    with pytest.raises(Exception):
+                        _do_fetch("NVDA", hours=48)
+
+        assert call_count["n"] == _MAX_RETRIES
+
+    def test_timeout_12_seconds(self):
+        """Timeout is 12 seconden (verhoogd van 5s)."""
+        from data.finnhub_client import _TIMEOUT_SEC
+        assert _TIMEOUT_SEC >= 10.0
+
+    def test_is_timeout_detects_readtimeout(self):
+        import httpx
+        from data.finnhub_client import _is_timeout
+        assert _is_timeout(httpx.ReadTimeout("read timed out")) is True
+
+    def test_is_timeout_detects_connecttimeout(self):
+        import httpx
+        from data.finnhub_client import _is_timeout
+        assert _is_timeout(httpx.ConnectTimeout("connect timed out")) is True
+
+    def test_is_timeout_false_for_other_errors(self):
+        from data.finnhub_client import _is_timeout
+        assert _is_timeout(ValueError("bad json")) is False
+        assert _is_timeout(ConnectionError("refused")) is False
+
