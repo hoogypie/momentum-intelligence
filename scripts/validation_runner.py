@@ -91,6 +91,8 @@ def _load_watchlist(group_filter: Optional[str] = None) -> list[dict]:
                 "sector_heat":  group.get("sector_heat", 50),
                 "cap":          t.get("cap", "UNKNOWN"),
                 "note":         t.get("note", ""),
+                "cohort":       group.get("cohort", "A"),
+                "expansion":    group.get("expansion", ""),
             })
     return entries
 
@@ -304,7 +306,7 @@ _CSV_COLUMNS = [
     "catalyst_source", "catalyst_conf", "top_headline",
     "skip_blocked", "skip_reasons",
     "data_confidence", "cache_hit", "fetch_error",
-    "top_reasons", "summary",
+    "top_reasons", "summary", "cohort",
 ]
 
 # ── Unicode sanitizer ────────────────────────────────────────────────────────
@@ -471,6 +473,7 @@ def main() -> None:
         epilog=__doc__,
     )
     parser.add_argument("--group",         help="Analyseer één groep (bv. quantum)")
+    parser.add_argument("--cohort",        help="Analyseer één cohort: A of B")
     parser.add_argument("--ticker",        nargs="+", help="Specifieke tickers (overschrijft watchlist)")
     parser.add_argument("--delay",         type=float, default=_DEFAULT_DELAY,
                         help=f"Seconden tussen requests (default: {_DEFAULT_DELAY})")
@@ -491,6 +494,8 @@ def main() -> None:
         ]
     else:
         entries = _load_watchlist(group_filter=args.group)
+        if args.cohort:
+            entries = [e for e in entries if e.get("cohort", "A") == args.cohort.upper()]
 
     if not entries:
         logger.error("Geen tickers gevonden. Check --group naam of validation_watchlist.json.")
@@ -534,6 +539,8 @@ def main() -> None:
         result["group_label"] = entry["group_label"]
         result["cap_expected"] = entry["cap"]
         result["note"]        = entry["note"]
+        result["cohort"]      = entry.get("cohort", "A")
+        result["expansion"]   = entry.get("expansion", "")
 
         results.append(result)
 
