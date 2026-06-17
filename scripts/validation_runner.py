@@ -74,7 +74,7 @@ def _load_watchlist(group_filter: Optional[str] = None) -> list[dict]:
     Laadt tickers uit validation_watchlist.json.
     Retourneert lijst van dicts met ticker, group_id, group_label, cap, note.
     """
-    with open(_WATCHLIST_PATH) as f:
+    with open(_WATCHLIST_PATH, encoding="utf-8") as f:
         wl = json.load(f)
 
     entries = []
