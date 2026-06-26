@@ -693,13 +693,6 @@
           "note": "Trade Desk — programmatic AI advertising"
         },
         {
-          "ticker": "CFLT",
-          "cap": "MID",
-          "catalyst_freq": "MEDIUM",
-          "volatility": "HIGH",
-          "note": "Confluent — data streaming, AI pipeline infra"
-        },
-        {
           "ticker": "ESTC",
           "cap": "MID",
           "catalyst_freq": "MEDIUM",
