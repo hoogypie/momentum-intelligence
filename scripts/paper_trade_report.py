@@ -298,6 +298,106 @@ def _report(args) -> None:
             wr  = _win_rate(rets)
             print(f"  {cat:<12} {len(rets):>4} {wr:>5.1f}% {avg:>+6.2f}%")
 
+    # ── MODERATE WARNING ─────────────────────────────────────────────────────
+    moderate_trades = [t for t in all_complete if t.get("catalyst_type") == "MODERATE"]
+    if moderate_trades:
+        mod_rets_5d = [t["return_5d"] for t in moderate_trades if t.get("return_5d") is not None]
+        mod_wr = _win_rate(mod_rets_5d) if mod_rets_5d else 0.0
+        if mod_wr == 0.0 or (len(mod_rets_5d) >= 2 and mod_wr < 40.0):
+            print(f"\n  ⚠️  MODERATE CATALYST WAARSCHUWING")
+            print(f"  Win rate MODERATE (5d): {mod_wr:.0f}% over {len(mod_rets_5d)} trades")
+            print(f"  → Behandel MODERATE signalen als WATCHLIST ONLY totdat N≥10 en win rate >50%")
+
+    # ── EXHAUSTION × CATALYST CROSSTAB ───────────────────────────────────────
+    exh_cats = defaultdict(list)
+    non_exh_cats = defaultdict(list)
+    for t in all_complete:
+        phase = t.get("phase", "")
+        cat   = t.get("catalyst_type", "NONE")
+        ret   = t.get("return_5d")
+        if ret is None:
+            continue
+        if phase == "EXHAUSTION":
+            exh_cats[cat].append(ret)
+        else:
+            non_exh_cats[cat].append(ret)
+
+    all_exh_cats = set(exh_cats.keys()) | set(non_exh_cats.keys())
+    if exh_cats and len(all_exh_cats) > 0:
+        print(f"\n  EXHAUSTION × CATALYST CROSSTAB (5d)")
+        print(f"  {'CATALYST':<10} {'FASE':<14} {'N':>4} {'WIN%':>6} {'GEM%':>7} {'MED%':>7}")
+        print(f"  {'-'*10} {'-'*14} {'-'*4} {'-'*6} {'-'*7} {'-'*7}")
+        for cat in ["STRONG", "MODERATE", "WEAK", "NONE"]:
+            for phase_label, groups in [("EXHAUSTION", exh_cats), ("OTHER", non_exh_cats)]:
+                rets = groups.get(cat, [])
+                if not rets:
+                    continue
+                avg = round(sum(rets) / len(rets), 2)
+                med = _median(rets)
+                wr  = _win_rate(rets)
+                flag = " ⚠️" if phase_label == "EXHAUSTION" and cat == "MODERATE" else ""
+                print(
+                    f"  {cat:<10} {phase_label:<14} {len(rets):>4} "
+                    f"{wr:>5.1f}% {avg:>+6.2f}% {med:>+6.2f}%{flag}"
+                )
+
+    # ── TICKER-LEVEL DEDUPE VIEW ──────────────────────────────────────────────
+    # Per ticker: alleen het EERSTE signaal (op signal_ts). Aparte stats.
+    ticker_first: dict[str, dict] = {}
+    for t in all_complete:
+        ticker = t["ticker"]
+        ts     = t.get("signal_ts", "")
+        if ticker not in ticker_first or ts < ticker_first[ticker].get("signal_ts", ""):
+            ticker_first[ticker] = t
+
+    deduped = list(ticker_first.values())
+    stacked_tickers = [
+        tkr for tkr in set(t["ticker"] for t in all_complete)
+        if sum(1 for t in all_complete if t["ticker"] == tkr) > 1
+    ]
+
+    if stacked_tickers:
+        print(f"\n  TICKER-LEVEL VIEW — DEDUPE (alleen eerste signaal per ticker)")
+        print(f"  Gestacked (meerdere signalen): {', '.join(sorted(stacked_tickers))}")
+
+        deduped_rets_5d = [t["return_5d"] for t in deduped if t.get("return_5d") is not None]
+        if deduped_rets_5d:
+            avg_d = round(sum(deduped_rets_5d) / len(deduped_rets_5d), 2)
+            med_d = _median(deduped_rets_5d)
+            wr_d  = _win_rate(deduped_rets_5d)
+
+            all_rets_5d = [t["return_5d"] for t in all_complete if t.get("return_5d") is not None]
+            avg_a = round(sum(all_rets_5d) / len(all_rets_5d), 2)
+            wr_a  = _win_rate(all_rets_5d)
+
+            print(f"  {'VIEW':<20} {'N':>4} {'WIN%':>6} {'GEM5d%':>8} {'MED5d%':>8}")
+            print(f"  {'-'*20} {'-'*4} {'-'*6} {'-'*8} {'-'*8}")
+            print(
+                f"  {'Trade-level (alle)':<20} {len(all_rets_5d):>4} "
+                f"{wr_a:>5.1f}% {avg_a:>+7.2f}% —"
+            )
+            print(
+                f"  {'Ticker-level (1e sig)':<20} {len(deduped_rets_5d):>4} "
+                f"{wr_d:>5.1f}% {avg_d:>+7.2f}% {med_d:>+7.2f}%"
+            )
+
+        print(f"\n  Dedupe trades (eerste signaal per ticker, gesorteerd op 5d):")
+        print(
+            f"  {'TICKER':<7} {'ENTRY':>9} {'SIGNAAL':<12} "
+            f"{'5d%':>6} {'10d%':>7} {'CAT':<10} {'FASE'}"
+        )
+        print(f"  {'-'*7} {'-'*9} {'-'*12} {'-'*6} {'-'*7} {'-'*9} {'-'*10}")
+        for t in sorted(deduped, key=lambda x: x.get("return_5d") or -999, reverse=True):
+            def _fmt2(k):
+                v = t.get(k)
+                return f"{v:+.1f}" if v is not None else "  —"
+            sig_date = t.get("signal_ts", "")[:10]
+            print(
+                f"  {t['ticker']:<7} {t['entry_price']:>9.2f} {sig_date:<12} "
+                f"{_fmt2('return_5d'):>6} {_fmt2('return_10d'):>7} "
+                f"{t.get('catalyst_type','?'):<10} {t.get('phase','?')}"
+            )
+
     # ── PER CATALYST SOURCE ───────────────────────────────────────────────────
     src_groups = defaultdict(list)
     for t in all_complete:
